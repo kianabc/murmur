@@ -224,6 +224,8 @@ public final class UsageStore {
             let status = sqlite3_step(stmt)
             if status != SQLITE_DONE {
                 Log.echo("usage: WRITE FAILED (\(status)) — \(String(cString: sqlite3_errmsg(db)))")
+            } else {
+                NotificationCenter.default.post(name: .murmurUsageRecorded, object: nil)
             }
         }
     }

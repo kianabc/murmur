@@ -1,23 +1,21 @@
 import Foundation
 
+public extension Notification.Name {
+    /// Posted after a usage row is written, so open windows can refresh.
+    static let murmurUsageRecorded = Notification.Name("com.torimi.murmur.usageRecorded")
+}
+
 public enum Money {
-    /// Three significant figures — for money actually spent.
+    /// Three decimal places. Always exactly three.
     ///
-    /// A single cleaned transcript costs a fraction of a cent, so a fixed two
-    /// decimals renders real totals as "$0.00" and the tracker looks broken.
-    /// Above a dollar it floors at two decimals, because that is what money
-    /// looks like.
+    /// Two decimals shows "$0.00" for every real total, since a cleaned
+    /// transcript costs well under a cent. More than three is unreadable.
     public static func format(_ value: Double) -> String {
-        guard value > 0 else { return "$0.00" }
-        let magnitude = Int(floor(log10(value)))
-        let decimals = max(2, 2 - magnitude)
-        return String(format: "$%.\(decimals)f", value)
+        String(format: "$%.3f", value)
     }
 
-    /// Two decimals — for forward-looking estimates.
-    ///
-    /// An estimate is a rough guide, and extra digits imply a precision it
-    /// doesn't have. "$0.72/mo" is honest; "$0.722/mo" pretends to know.
+    /// Two decimals — for forward-looking estimates, where extra digits imply a
+    /// precision the guess does not have.
     public static func estimate(_ value: Double) -> String {
         String(format: "$%.2f", value)
     }

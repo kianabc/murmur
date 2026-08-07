@@ -100,6 +100,12 @@ public final class SettingsModel: ObservableObject {
     private var promptedAccessibility = false
     var onHotkeyChange: ((Hotkey) -> Void)?
 
+    private var usageObserver: NSObjectProtocol?
+
+    deinit {
+        if let usageObserver { NotificationCenter.default.removeObserver(usageObserver) }
+    }
+
     public init(store: CorrectionStore, usage: UsageStore?, hotkey: Hotkey) {
         self.store = store
         self.usage = usage
@@ -113,6 +119,14 @@ public final class SettingsModel: ObservableObject {
         // *that* a key exists; the value itself is read once, at request time.
         self.hasStoredKey = Keychain.isPresent(CleanupPreference.model.provider.keychainAccount)
         refresh()
+
+        // Without this an already-open window shows stale zeros forever — it
+        // only refreshed when a tab appeared.
+        usageObserver = NotificationCenter.default.addObserver(
+            forName: .murmurUsageRecorded, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refresh() }
+        }
     }
 
     func refresh() {
