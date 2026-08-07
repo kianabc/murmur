@@ -1,6 +1,7 @@
 import Foundation
 import MurmurASR
 import MurmurCleanup
+import MurmurCore
 import MurmurStore
 
 // Dev tool for the transcription + correction pipeline.
@@ -153,6 +154,31 @@ case "usage-selftest":
     check("all cost", String(format: "%.4f", all.costUSD), "0.0061")
     check("guard rejections (all)", all.guardRejections, 1)
     check("models", store.byModel(since: nil).count, 2)
+
+case "version-selftest":
+    let cases: [(String, String, Bool)] = [
+        // (current, latest, should offer update?)
+        ("0.1.0", "0.2.0", true),
+        ("0.1.0", "0.1.1", true),
+        ("0.9.0", "0.10.0", true),      // the classic string-compare trap
+        ("0.10.0", "0.9.0", false),
+        ("1.0.0", "1.0.0", false),
+        ("0.2.0", "0.1.9", false),
+        ("0.1.0", "v0.2.0", true),      // tags usually carry a leading v
+        ("0.1.0", "0.2.0-beta.1", true),
+        ("2.0.0", "10.0.0", true),
+    ]
+    var failures = 0
+    for (current, latest, shouldUpdate) in cases {
+        guard let a = SemanticVersion(current), let b = SemanticVersion(latest) else {
+            print("FAIL  could not parse \(current) or \(latest)"); failures += 1; continue
+        }
+        let got = b > a
+        let ok = got == shouldUpdate
+        if !ok { failures += 1 }
+        print("\(ok ? "PASS" : "FAIL")  \(current) -> \(latest): update=\(got), want \(shouldUpdate)")
+    }
+    print(failures == 0 ? "\nall \(cases.count) version cases pass" : "\n\(failures) FAILURES")
 
 case "guard":
     // Sanity-check the diff guard against realistic pairs. If this over-rejects,
