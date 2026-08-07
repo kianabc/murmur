@@ -78,7 +78,13 @@ public actor UpdateChecker {
         guard latest > currentVersion else { return nil }
 
         let notes = (json["body"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let page = (json["html_url"] as? String).flatMap(URL.init(string:))
+        // Both URLs below come from a network response and are handed to
+        // NSWorkspace to open. Validate scheme and host rather than trusting
+        // them — a `file:` or `javascript:` URL in that position would be
+        // opened without question.
+        let page = (json["html_url"] as? String)
+            .flatMap(URL.init(string:))
+            .flatMap(Self.trusted)
             ?? URL(string: "https://github.com/\(Self.repository)/releases/latest")!
 
         let assets = json["assets"] as? [[String: Any]] ?? []
@@ -86,8 +92,17 @@ public actor UpdateChecker {
             .first { ($0["name"] as? String)?.hasSuffix(".dmg") == true }
             .flatMap { $0["browser_download_url"] as? String }
             .flatMap(URL.init(string:))
+            .flatMap(Self.trusted)
 
         return AvailableUpdate(version: latest, releaseNotes: notes, pageURL: page, downloadURL: dmg)
+    }
+
+    /// Only https URLs on GitHub's own hosts are ever opened.
+    public static func trusted(_ url: URL) -> URL? {
+        guard url.scheme?.lowercased() == "https", let host = url.host?.lowercased() else { return nil }
+        let allowed = ["github.com", "www.github.com", "objects.githubusercontent.com",
+                       "release-assets.githubusercontent.com"]
+        return allowed.contains(host) ? url : nil
     }
 
     public enum UpdateError: LocalizedError {

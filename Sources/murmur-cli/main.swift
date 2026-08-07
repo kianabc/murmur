@@ -180,6 +180,54 @@ case "version-selftest":
     }
     print(failures == 0 ? "\nall \(cases.count) version cases pass" : "\n\(failures) FAILURES")
 
+case "edge-selftest":
+    var failures = 0
+    func check(_ label: String, _ got: Any?, _ want: Any?) {
+        let ok = "\(got ?? "nil")" == "\(want ?? "nil")"
+        if !ok { failures += 1 }
+        print("\(ok ? "PASS" : "FAIL")  \(label): got \(got ?? "nil"), want \(want ?? "nil")")
+    }
+
+    // URL validation on network-supplied values.
+    check("https github accepted",
+          UpdateChecker.trusted(URL(string: "https://github.com/a/b")!)?.host, "github.com")
+    check("file: rejected",
+          UpdateChecker.trusted(URL(string: "file:///etc/passwd")!)?.absoluteString, nil)
+    check("javascript: rejected",
+          UpdateChecker.trusted(URL(string: "javascript:alert(1)")!)?.absoluteString, nil)
+    check("http downgrade rejected",
+          UpdateChecker.trusted(URL(string: "http://github.com/a")!)?.absoluteString, nil)
+    check("lookalike host rejected",
+          UpdateChecker.trusted(URL(string: "https://github.com.evil.tld/a")!)?.absoluteString, nil)
+
+    // Empty and whitespace transcripts must not produce junk.
+    let store = try! CorrectionStore(url: URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("edge-\(UUID().uuidString).sqlite"))
+    let corrector = Corrector(store: store)
+    check("empty stays empty", corrector.apply(to: "", appBundleID: nil), "")
+    check("whitespace preserved", corrector.apply(to: "   ", appBundleID: nil), "   ")
+
+    // A correction must not fire on a substring of a longer word.
+    try? store.learn(heard: "cat", meant: "dog")
+    check("substring not replaced", corrector.apply(to: "concatenate", appBundleID: nil), "concatenate")
+    check("whole word replaced", corrector.apply(to: "the cat sat", appBundleID: nil), "the dog sat")
+    // Capitalisation is carried across on purpose: a sentence-initial "Versell"
+    // must become "Vercel", not "vercel".
+    check("capitalisation preserved", corrector.apply(to: "The Cat sat", appBundleID: nil), "The Dog sat")
+    check("all-caps preserved", corrector.apply(to: "CAT sat", appBundleID: nil), "DOG sat")
+
+    // Self-referential correction must not loop.
+    try? store.learn(heard: "loop", meant: "loop de loop")
+    check("no infinite expansion", corrector.apply(to: "loop", appBundleID: nil), "loop de loop")
+
+    // Guard must reject an empty cleanup rather than wiping the transcript.
+    check("empty cleanup rejected",
+          DiffGuard.check(raw: "hello world", cleaned: "").isAccepted, false)
+    check("whitespace cleanup rejected",
+          DiffGuard.check(raw: "hello world", cleaned: "   ").isAccepted, false)
+
+    print(failures == 0 ? "\nall edge cases pass" : "\n\(failures) FAILURES")
+
 case "guard":
     // Sanity-check the diff guard against realistic pairs. If this over-rejects,
     // the cleanup pass is silently disabled for everyone.

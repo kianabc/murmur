@@ -75,16 +75,32 @@ public struct AnthropicProvider: Sendable {
         guard useKeychain else { return nil }
         // Cache it: each Keychain read can raise an authorisation prompt, and
         // asking repeatedly is both slow and infuriating.
-        if let cached = cachedKey { return cached }
+        if let cached = cachedKeyValue() { return cached }
         let value = Keychain.get(keychainAccount)
-        cachedKey = value
+        storeCachedKey(value)
         return value
     }
 
+    // Guarded: cleanup runs on an arbitrary executor, and an unsynchronised
+    // static String? read and written from two threads is a crash, not a
+    // benign race — the same shape of bug that hit the transcript buffer.
     nonisolated(unsafe) private static var cachedKey: String?
+    private static let keyLock = NSLock()
+
+    private static func cachedKeyValue() -> String? {
+        keyLock.lock()
+        defer { keyLock.unlock() }
+        return cachedKey
+    }
+
+    private static func storeCachedKey(_ value: String?) {
+        keyLock.lock()
+        cachedKey = value
+        keyLock.unlock()
+    }
 
     /// Call after the key changes so the next request picks it up.
-    public static func invalidateKeyCache() { cachedKey = nil }
+    public static func invalidateKeyCache() { storeCachedKey(nil) }
 
     /// Whether a key is available. Reads (and caches) the Keychain on first call,
     /// so only ever call this from a user-initiated path — never during launch.
