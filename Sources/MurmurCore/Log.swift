@@ -48,6 +48,10 @@ public enum Log {
                 try? handle.write(contentsOf: data)
             } else {
                 try? data.write(to: url)
+                // Owner-only: the log records which apps you dictate into and when.
+                try? FileManager.default.setAttributes(
+                    [.posixPermissions: 0o600], ofItemAtPath: url.path
+                )
             }
         }
     }

@@ -102,6 +102,15 @@ public final class UsageStore {
             throw StoreFailure.open(String(cString: sqlite3_errmsg(db)))
         }
         try migrate()
+        Self.restrictPermissions(at: url)
+    }
+
+    /// 0600. These files hold personal vocabulary and usage history; the default
+    /// 0644 would let any other account on the Mac read them.
+    private static func restrictPermissions(at url: URL) {
+        try? FileManager.default.setAttributes(
+            [.posixPermissions: 0o600], ofItemAtPath: url.path
+        )
     }
 
     public static func defaultURL() -> URL {

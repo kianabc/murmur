@@ -49,6 +49,12 @@ else
   IDENTITY="-"
 fi
 
-codesign --force --sign "$IDENTITY" --timestamp=none "$APP"
+# Hardened runtime is mandatory for notarisation, and it is applied to local
+# builds too so a problem surfaces here rather than at release time.
+codesign --force --sign "$IDENTITY" \
+  --options runtime \
+  --entitlements "$ROOT/Resources/Murmur.entitlements" \
+  --timestamp=none \
+  "$APP"
 
 echo "built $APP — v$VERSION ($BUILD, $SHA, $CONFIG)"

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Required under the hardened runtime for AVAudioEngine to open the mic.
+	     Without it a notarised build launches and silently captures silence. -->
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+
+	<!-- Deliberately NOT sandboxed. The sandbox blocks AXUIElement access to
+	     other apps, which is how text reaches your cursor. See SPEC.md §9. -->
+</dict>
+</plist>

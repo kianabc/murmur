@@ -39,7 +39,9 @@ public enum CleanupError: LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .noAPIKey: "No Anthropic API key set"
-        case .http(let code, let body): "API error \(code): \(body)"
+        // Only the status code. The response body is attacker-influenced and
+        // ends up in a log file — there is no reason to copy it verbatim.
+        case .http(let code, _): "API error \(code)"
         case .malformed(let detail): "Unexpected response: \(detail)"
         }
     }
@@ -193,6 +195,8 @@ public struct AnthropicProvider: Sendable {
             throw CleanupError.malformed("no HTTP response")
         }
         guard http.statusCode == 200 else {
+            // Kept on the error for debugging in a debugger, never rendered
+            // into errorDescription and therefore never logged.
             let detail = String(data: data, encoding: .utf8)?.prefix(300) ?? ""
             throw CleanupError.http(http.statusCode, String(detail))
         }
