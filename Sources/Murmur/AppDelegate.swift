@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var correctionStore: CorrectionStore?
     private var usageStore: UsageStore?
     private var settings: SettingsWindowController?
+    private let setup = SetupWindowController()
     private var hud: DictationHUD?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -195,6 +196,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let forced = ProcessInfo.processInfo.environment["MURMUR_FORCE_SETUP"] == "1"
         let missing = missingPermissions
         guard forced || !missing.isEmpty else { return }
+        setup.hotkeyName = controller.hotkey.displayName
+        // A dedicated window, not a Settings tab: someone opening the app for
+        // the first time shouldn't have to work out which of six tabs to look at.
+        setup.onFinished = { [weak self] in self?.beginListening() }
+        setup.show()
+        return
         Log.echo("setup incomplete — missing: \(missing.isEmpty ? "none (forced)" : missing.map(\.rawValue).joined(separator: ", "))")
         // Straight to the Permissions tab. Opening on General is how people miss
         // that anything is required at all.

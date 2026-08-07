@@ -45,7 +45,9 @@ public final class SettingsModel: ObservableObject {
 
     // Permissions
     @Published var permissionStates: [Permission: PermissionState] = [:]
-    @Published var selectedTab: SettingsTab = .general
+    @Published var selectedTab: SettingsTab = .general {
+        didSet { Log.echo("settings: tab -> \(selectedTab)") }
+    }
 
     // Updates
     @Published var updateStatus = ""
@@ -661,6 +663,7 @@ public final class SettingsWindowController {
         window.title = "Murmur Settings"
         window.styleMask = [.titled, .closable, .resizable]
         window.isReleasedWhenClosed = false
+        window.isRestorable = false
         window.center()
         self.window = window
 
@@ -683,6 +686,12 @@ public final class SettingsWindowController {
 
         NSApp.activate()
         window.makeKeyAndOrderFront(nil)
+
+        // Re-apply after first layout: TabView honours the binding on change,
+        // but not always on the initial render.
+        if let tab {
+            DispatchQueue.main.async { model.selectedTab = tab }
+        }
     }
 
     deinit {

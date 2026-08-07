@@ -1,4 +1,5 @@
 import Foundation
+import MurmurCore
 import SQLite3
 
 private let SQLITE_TRANSIENT_USAGE = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
@@ -208,19 +209,22 @@ public final class UsageStore {
             sqlite3_bind_text(stmt, 3, event.appBundleID ?? "", -1, SQLITE_TRANSIENT_USAGE)
             sqlite3_bind_text(stmt, 4, event.provider, -1, SQLITE_TRANSIENT_USAGE)
             sqlite3_bind_text(stmt, 5, event.model, -1, SQLITE_TRANSIENT_USAGE)
-            sqlite3_bind_int(stmt, 15, Int32(event.inputTokens))
-            sqlite3_bind_int(stmt, 15, Int32(event.outputTokens))
-            sqlite3_bind_int(stmt, 15, Int32(event.cacheWriteTokens))
-            sqlite3_bind_int(stmt, 15, Int32(event.cacheReadTokens))
-            sqlite3_bind_double(stmt, 15, event.priceInPerMTok)
-            sqlite3_bind_double(stmt, 15, event.priceOutPerMTok)
+            sqlite3_bind_int(stmt, 6, Int32(event.inputTokens))
+            sqlite3_bind_int(stmt, 7, Int32(event.outputTokens))
+            sqlite3_bind_int(stmt, 8, Int32(event.cacheWriteTokens))
+            sqlite3_bind_int(stmt, 9, Int32(event.cacheReadTokens))
+            sqlite3_bind_double(stmt, 10, event.priceInPerMTok)
+            sqlite3_bind_double(stmt, 11, event.priceOutPerMTok)
             // Resolved now, never recomputed — see the type doc.
-            sqlite3_bind_double(stmt, 15, event.costUSD)
-            sqlite3_bind_int(stmt, 15, Int32(event.latencyMs))
-            sqlite3_bind_int(stmt, 15, event.guardFired ? 1 : 0)
+            sqlite3_bind_double(stmt, 12, event.costUSD)
+            sqlite3_bind_int(stmt, 13, Int32(event.latencyMs))
+            sqlite3_bind_int(stmt, 14, event.guardFired ? 1 : 0)
             sqlite3_bind_int(stmt, 15, Int32(event.wordCount))
 
-            sqlite3_step(stmt)
+            let status = sqlite3_step(stmt)
+            if status != SQLITE_DONE {
+                Log.echo("usage: WRITE FAILED (\(status)) — \(String(cString: sqlite3_errmsg(db)))")
+            }
         }
     }
 
