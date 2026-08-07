@@ -12,10 +12,6 @@ The "um" is gone, and it worked out you meant *ride*, not *write*.
 
 ---
 
-> **⚠️ No download available yet.** The first release hasn't been published.
-> Until then the only way to run Murmur is [building it yourself](#building-it-yourself),
-> which needs Xcode. This section will work as soon as v0.1.0 ships.
-
 ## Installing
 
 **You need:** a Mac with Apple Silicon (M1 or newer) running **macOS 26 or later**.
@@ -24,7 +20,7 @@ Not sure? Click the  menu → About This Mac.
 ### 1. Download
 
 Go to the [latest release](https://github.com/kianabc/murmur/releases/latest) and
-download **Murmur.dmg**.
+download **Murmur-1.0.0.dmg**.
 
 ### 2. Install
 
