@@ -507,17 +507,7 @@ enum Format {
         }
     }
 
-    /// Three significant figures.
-    ///
-    /// Real costs here are fractions of a cent, so a fixed 2 decimals would
-    /// render most of them as "$0.00" and make the tracker look broken. Above a
-    /// dollar it floors at 2 decimals, because that's what money looks like.
-    static func money(_ value: Double) -> String {
-        guard value > 0 else { return "$0.00" }
-        let magnitude = Int(floor(log10(value)))
-        let decimals = max(2, 2 - magnitude)
-        return String(format: "$%.\(decimals)f", value)
-    }
+    static func money(_ value: Double) -> String { Money.format(value) }
 }
 
 /// One period's spend. The cost is the headline because it's the number people

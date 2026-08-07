@@ -14,7 +14,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var usageStore: UsageStore?
     private var settings: SettingsWindowController?
     private var hud: DictationHUD?
-    private var testBench: TestBenchWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Two menu bar icons means two copies are running — easy to end up with
@@ -32,7 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Without this, ⌘V is dead in every text field in the app.
         EditMenu.install()
 
-        let engine = Self.makeEngine()
+        let engine = SpeechAnalyzerEngine()
         controller = DictationController(engine: engine, sink: PasteboardSink())
 
         // Learned corrections run on every transcript before it's inserted.
@@ -108,9 +107,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         hud = DictationHUD(controller: controller)
-        testBench = TestBenchWindowController(controller: controller)
         menuBar = MenuBarController(controller: controller)
-        menuBar.onShowTestBench = { [weak self] in self?.testBench?.show() }
         menuBar.onShowSettings = { [weak self] in
             guard let self else { return }
             // Show the raw transcript, not the corrected one — that's the text
@@ -131,10 +128,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             CleanupPreference.model.displayName
         ))
 
-        if CommandLine.arguments.contains("--test") {
-            testBench?.show()
-        } else if CommandLine.arguments.contains("--settings") {
-            // Optional --tab=<name> so a specific pane can be inspected directly.
+        // Dictation always starts. A dev flag opens an extra window; it must
+        // never stop the app doing its job — leaving it deaf while a settings
+        // pane is up is invisible and looks like the hotkey is broken.
+        beginListening()
+
+        if CommandLine.arguments.contains("--settings") {
             let named = CommandLine.arguments.first { $0.hasPrefix("--tab=") }?
                 .replacingOccurrences(of: "--tab=", with: "")
             let tab: SettingsTab? = switch named {
@@ -147,10 +146,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             settings?.show(tab: tab)
         } else {
-            beginListening()
-            // Missing permissions used to surface only when the event tap failed,
-            // so a first run with the mic or Accessibility ungranted showed
-            // nothing at all — just a menu bar icon that did nothing.
             showPermissionsIfIncomplete()
         }
 

@@ -12,7 +12,6 @@ public final class MenuBarController {
     private var cancellables = Set<AnyCancellable>()
 
     public var onShowSettings: (() -> Void)?
-    public var onShowTestBench: (() -> Void)?
 
     public init(controller: DictationController) {
         self.controller = controller
@@ -97,9 +96,6 @@ public final class MenuBarController {
         dictate.target = self
         menu.addItem(dictate)
 
-        let bench = NSMenuItem(title: "Test Bench…", action: #selector(showTestBench), keyEquivalent: "t")
-        bench.target = self
-        menu.addItem(bench)
         menu.addItem(.separator())
 
         let fix = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
@@ -133,10 +129,6 @@ public final class MenuBarController {
 
     @objc private func showSettings() {
         onShowSettings?()
-    }
-
-    @objc private func showTestBench() {
-        onShowTestBench?()
     }
 
     @objc private func toggleDictation() {

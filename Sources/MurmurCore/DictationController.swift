@@ -16,7 +16,6 @@ public enum DictationState: Equatable, Sendable {
 }
 
 /// Produces a transcript from captured audio.
-/// `SpeechAnalyzerEngine` is the real one; `StubEngine` exists for tests.
 public protocol DictationEngine: AnyObject {
     func beginCapture() throws
     func cancelCapture()
@@ -163,8 +162,12 @@ public final class DictationController: ObservableObject {
                 let transcript = try await engine.finishCapture()
                 let raw = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !raw.isEmpty else {
-                    state = .idle
+                    // Silently returning to idle is indistinguishable from a
+                    // broken hotkey. Say that nothing was heard.
+                    Log.echo("no speech detected — nothing to insert")
+                    state = .failed("Didn't catch that — try speaking a little louder")
                     partialText = ""
+                    resetSoon()
                     return
                 }
                 lastRawTranscript = raw

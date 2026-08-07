@@ -1,4 +1,5 @@
 import Foundation
+import MurmurCore
 
 public enum CleanupProvider: String, CaseIterable, Codable, Sendable, Identifiable {
     case anthropic
@@ -70,9 +71,7 @@ public struct CleanupModelSpec: Identifiable, Hashable, Sendable {
         let live = pricing
         let cost = requestsPerMonth
             * (700 / 1_000_000 * live.input + 45 / 1_000_000 * live.output)
-        return cost < 1
-            ? String(format: "~%.0f¢/mo", cost * 100)
-            : String(format: "~$%.2f/mo", cost)
+        return "~\(Money.estimate(cost))/mo"
     }
 
     // Ordered cheapest → most capable within each provider.
