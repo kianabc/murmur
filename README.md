@@ -3,7 +3,7 @@
 System-wide voice-to-text for macOS. Hold a key, speak, release — cleaned text
 appears at your cursor in any app.
 
-See [SPEC.md](SPEC.md) for the design. `murmur` is a placeholder name.
+See [SPEC.md](SPEC.md) for the design and the reasoning behind it.
 
 ## Build
 
