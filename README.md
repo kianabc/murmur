@@ -182,6 +182,10 @@ Versions follow [semantic versioning](https://semver.org). Every change is
 recorded in [CHANGELOG.md](CHANGELOG.md). Murmur checks GitHub once a day for a
 newer release and tells you — it never installs anything by itself.
 
+## Releasing
+
+See [DISTRIBUTION.md](DISTRIBUTION.md) for signing, notarization and publishing.
+
 ## License
 
 MIT — see [LICENSE](LICENSE). Do what you like with it.
