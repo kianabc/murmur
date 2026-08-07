@@ -138,6 +138,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         prepareEngine(engine)
+        checkForUpdatesIfDue()
     }
 
     /// Apple's streaming recogniser. The package requires macOS 26, so there is
@@ -172,6 +173,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Tap creation fails when Input Monitoring hasn't been granted.
             Log.echo("event tap refused — Input Monitoring not granted")
             settings?.show()
+        }
+    }
+
+    /// Quiet daily check. Only logs — nothing interrupts the user, and a network
+    /// failure here must never affect dictation.
+    private func checkForUpdatesIfDue() {
+        guard UpdatePreference.isDue else { return }
+        Task {
+            do {
+                if let update = try await UpdateChecker().check() {
+                    Log.echo("update available: \(update.version)")
+                } 
+                UpdatePreference.lastChecked = Date()
+            } catch {
+                Log.echo("update check failed: \(error.localizedDescription)")
+            }
         }
     }
 

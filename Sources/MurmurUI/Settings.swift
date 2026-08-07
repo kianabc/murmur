@@ -28,6 +28,44 @@ public final class SettingsModel: ObservableObject {
     // Permissions
     @Published var permissionStates: [Permission: PermissionState] = [:]
 
+    // Updates
+    @Published var updateStatus = ""
+    @Published var availableUpdate: AvailableUpdate?
+    @Published var checkingForUpdate = false
+    @Published var autoCheckUpdates = UpdatePreference.automatic {
+        didSet { UpdatePreference.automatic = autoCheckUpdates }
+    }
+
+    var appVersion: String {
+        let short = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+        return "\(short) (\(build))"
+    }
+
+    func checkForUpdates() {
+        guard !checkingForUpdate else { return }
+        checkingForUpdate = true
+        updateStatus = "Checking…"
+        Task {
+            let checker = UpdateChecker()
+            do {
+                let found = try await checker.check()
+                UpdatePreference.lastChecked = Date()
+                await MainActor.run {
+                    availableUpdate = found
+                    updateStatus = found.map { "Version \($0.version) is available." }
+                        ?? "You're up to date."
+                    checkingForUpdate = false
+                }
+            } catch {
+                await MainActor.run {
+                    updateStatus = error.localizedDescription
+                    checkingForUpdate = false
+                }
+            }
+        }
+    }
+
     // Usage
     @Published var last30: UsageSummary = .empty
     @Published var allTime: UsageSummary = .empty
@@ -167,6 +205,8 @@ struct SettingsView: View {
                 .tabItem { Label("Usage", systemImage: "chart.bar") }
             PermissionsTab(model: model)
                 .tabItem { Label("Permissions", systemImage: "lock.shield") }
+            AboutTab(model: model)
+                .tabItem { Label("About", systemImage: "info.circle") }
         }
         .frame(width: 520, height: 430)
     }
@@ -327,6 +367,49 @@ private struct CorrectionsTab: View {
                         }
                     }
                 }
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
+private struct AboutTab: View {
+    @ObservedObject var model: SettingsModel
+
+    var body: some View {
+        Form {
+            Section {
+                LabeledContent("Version", value: model.appVersion)
+                LabeledContent("Requires", value: "macOS 26 or later")
+            }
+
+            Section {
+                Toggle("Check for updates automatically", isOn: $model.autoCheckUpdates)
+
+                HStack {
+                    Button(model.checkingForUpdate ? "Checking…" : "Check now") {
+                        model.checkForUpdates()
+                    }
+                    .disabled(model.checkingForUpdate)
+
+                    if let update = model.availableUpdate {
+                        Link("Download \(update.version.description)", destination: update.pageURL)
+                    }
+                }
+
+                if !model.updateStatus.isEmpty {
+                    Text(model.updateStatus).font(.caption).foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("Updates")
+            } footer: {
+                Text("Checks GitHub for a newer release once a day. Murmur tells you and opens the download page — it never installs anything on its own.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section {
+                Link("Source and issues", destination: URL(string: "https://github.com/\(UpdateChecker.repository)")!)
+                Link("Release notes", destination: URL(string: "https://github.com/\(UpdateChecker.repository)/blob/main/CHANGELOG.md")!)
             }
         }
         .formStyle(.grouped)

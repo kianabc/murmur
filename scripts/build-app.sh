@@ -21,6 +21,18 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/Murmur"
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
 
+# VERSION is the single source of truth — the plist, the git tag and the
+# changelog all read from it, so they can't drift apart.
+VERSION="$(tr -d '[:space:]' < "$ROOT/VERSION")"
+# CFBundleVersion must increase monotonically for updaters to compare builds;
+# the commit count does that and stays meaningful.
+BUILD="$(git -C "$ROOT" rev-list --count HEAD 2>/dev/null || echo 1)"
+SHA="$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+
+plutil -replace CFBundleShortVersionString -string "$VERSION" "$APP/Contents/Info.plist"
+plutil -replace CFBundleVersion -string "$BUILD" "$APP/Contents/Info.plist"
+plutil -replace MurmurGitSHA -string "$SHA" "$APP/Contents/Info.plist"
+
 # Generated from scripts/make-icon.swift rather than checked in as a binary.
 if [ ! -f "$ROOT/Resources/Murmur.icns" ]; then
   ( cd "$ROOT" && swift scripts/make-icon.swift >/dev/null \
@@ -39,4 +51,4 @@ fi
 
 codesign --force --sign "$IDENTITY" --timestamp=none "$APP"
 
-echo "built $APP ($CONFIG)"
+echo "built $APP — v$VERSION ($BUILD, $SHA, $CONFIG)"
