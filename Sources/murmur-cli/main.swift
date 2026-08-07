@@ -228,6 +228,32 @@ case "edge-selftest":
 
     print(failures == 0 ? "\nall edge cases pass" : "\n\(failures) FAILURES")
 
+case "seed-usage":
+    // Requires an explicit path. This writes fabricated rows, and defaulting to
+    // the real database would silently corrupt someone's cost history.
+    guard args.count >= 2 else {
+        fail("usage: murmur-cli seed-usage <path-to-throwaway.sqlite>")
+    }
+    let store = try! UsageStore(url: URL(fileURLWithPath: args[1]))
+    let cal = Calendar.current
+    for daysAgo in 0..<45 {
+        for _ in 0..<Int.random(in: 2...9) {
+            store.record(
+                UsageEvent(
+                    model: "claude-haiku-4-5",
+                    inputTokens: Int.random(in: 380...900),
+                    outputTokens: Int.random(in: 20...80),
+                    priceInPerMTok: 1.0, priceOutPerMTok: 5.0,
+                    latencyMs: Int.random(in: 900...2400),
+                    guardFired: Int.random(in: 0...30) == 0,
+                    wordCount: Int.random(in: 8...40)
+                ),
+                at: cal.date(byAdding: .day, value: -daysAgo, to: Date())!
+            )
+        }
+    }
+    print("seeded 45 days of usage")
+
 case "guard":
     // Sanity-check the diff guard against realistic pairs. If this over-rejects,
     // the cleanup pass is silently disabled for everyone.

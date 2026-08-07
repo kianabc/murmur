@@ -132,7 +132,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if CommandLine.arguments.contains("--test") {
             testBench?.show()
         } else if CommandLine.arguments.contains("--settings") {
-            settings?.show()
+            // Optional --tab=<name> so a specific pane can be inspected directly.
+            let named = CommandLine.arguments.first { $0.hasPrefix("--tab=") }?
+                .replacingOccurrences(of: "--tab=", with: "")
+            let tab: SettingsTab? = switch named {
+                case "general": .general
+                case "cleanup": .cleanup
+                case "corrections": .corrections
+                case "permissions": .permissions
+                case "about": .about
+                default: nil
+            }
+            settings?.show(tab: tab)
         } else {
             beginListening()
             // Missing permissions used to surface only when the event tap failed,

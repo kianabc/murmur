@@ -5,6 +5,14 @@ All notable changes are recorded here. Versions follow [semantic versioning](htt
 
 ## [1.0.1] — 2026-08-07
 
+### Changed
+- The Cleanup tab is now **AI Cleanup**, and usage moved into it — what you've
+  spent belongs beside the switch that causes the spending, not in a separate
+  tab.
+- Spend is shown as three cards: last 7 days, last 30 days, and all time, with
+  the cost as the headline figure and tokens as supporting detail.
+- The settings window is taller and resizable so nothing is clipped.
+
 ### Fixed
 - First launch now opens Settings on the Permissions tab when setup is
   incomplete. Since permissions moved into Settings, a first run with the

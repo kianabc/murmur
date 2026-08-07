@@ -8,7 +8,7 @@ import SwiftUI
 /// landing a first-time user on General when they need Permissions is how the
 /// setup step gets missed.
 public enum SettingsTab: Hashable, Sendable {
-    case general, cleanup, corrections, usage, permissions, about
+    case general, cleanup, corrections, permissions, about
 }
 
 // MARK: - Model
@@ -75,6 +75,7 @@ public final class SettingsModel: ObservableObject {
     }
 
     // Usage
+    @Published var last7: UsageSummary = .empty
     @Published var last30: UsageSummary = .empty
     @Published var allTime: UsageSummary = .empty
     @Published var byModel: [ModelUsage] = []
@@ -104,8 +105,9 @@ public final class SettingsModel: ObservableObject {
         entries = store.all()
 
         if let usage {
-            let cutoff = Calendar.current.date(byAdding: .day, value: -30, to: Date())
-            last30 = usage.summary(since: cutoff)
+            let cal = Calendar.current
+            last7 = usage.summary(since: cal.date(byAdding: .day, value: -7, to: Date()))
+            last30 = usage.summary(since: cal.date(byAdding: .day, value: -30, to: Date()))
             allTime = usage.summary(since: nil)
             byModel = usage.byModel(since: nil)
             trackingSince = usage.firstRecordedAt()
@@ -207,14 +209,11 @@ struct SettingsView: View {
                 .tabItem { Label("General", systemImage: "gearshape") }
                 .tag(SettingsTab.general)
             CleanupTab(model: model)
-                .tabItem { Label("Cleanup", systemImage: "wand.and.sparkles") }
+                .tabItem { Label("AI Cleanup", systemImage: "sparkles") }
                 .tag(SettingsTab.cleanup)
             CorrectionsTab(model: model)
                 .tabItem { Label("Corrections", systemImage: "character.cursor.ibeam") }
                 .tag(SettingsTab.corrections)
-            UsageTab(model: model)
-                .tabItem { Label("Usage", systemImage: "chart.bar") }
-                .tag(SettingsTab.usage)
             PermissionsTab(model: model)
                 .tabItem { Label("Permissions", systemImage: "lock.shield") }
                 .tag(SettingsTab.permissions)
@@ -222,7 +221,7 @@ struct SettingsView: View {
                 .tabItem { Label("About", systemImage: "info.circle") }
                 .tag(SettingsTab.about)
         }
-        .frame(width: 520, height: 430)
+        .frame(width: 540, height: 580)
     }
 }
 
@@ -316,9 +315,32 @@ private struct CleanupTab: View {
                          : "Without a key, dictation still works — it just skips the cleanup pass.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
+
+                Section {
+                    HStack(spacing: 10) {
+                        UsageCard(title: "Last 7 days", summary: model.last7)
+                        UsageCard(title: "Last 30 days", summary: model.last30)
+                        UsageCard(title: "All time", summary: model.allTime, highlighted: true)
+                    }
+                    .padding(.vertical, 2)
+                } header: {
+                    HStack {
+                        Text("What you've spent")
+                        Spacer()
+                        Button("Refresh") { model.refresh() }
+                            .buttonStyle(.borderless)
+                            .font(.caption)
+                    }
+                } footer: {
+                    Text(model.allTime.dictations == 0
+                         ? "Nothing yet — figures appear after your first cleaned transcript."
+                         : "Counts come from the API's own usage figures. Each request stores the prices in effect at the time, so past costs never change if pricing does.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
         }
         .formStyle(.grouped)
+        .onAppear { model.refresh() }
     }
 
     private func commit() {
@@ -430,93 +452,70 @@ private struct AboutTab: View {
     }
 }
 
-private struct UsageTab: View {
-    @ObservedObject var model: SettingsModel
-
-    var body: some View {
-        Form {
-            Section("Last 30 days") {
-                UsageRows(summary: model.last30)
-            }
-
-            Section {
-                UsageRows(summary: model.allTime)
-            } header: {
-                Text("All time")
-            } footer: {
-                if let since = model.trackingSince {
-                    Text("Since \(since.formatted(date: .abbreviated, time: .omitted)).")
-                        .font(.caption).foregroundStyle(.secondary)
-                } else {
-                    Text("Nothing recorded yet — usage appears here after the first cleaned transcript.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-            }
-
-            if model.byModel.count > 1 {
-                Section("By model") {
-                    ForEach(model.byModel) { entry in
-                        LabeledContent(entry.model) {
-                            Text(Format.money(entry.summary.costUSD)).monospacedDigit()
-                        }
-                    }
-                }
-            }
-
-            Section {
-                Button("Refresh") { model.refresh() }
-            } footer: {
-                Text("Token counts come from the API's own usage figures, and each request stores the prices in effect at the time — so past costs never change if pricing does.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-        }
-        .formStyle(.grouped)
-        .onAppear { model.refresh() }
-    }
-}
-
-private struct UsageRows: View {
-    let summary: UsageSummary
-
-    var body: some View {
-        LabeledContent("Tokens sent") {
-            Text(Format.count(summary.sentTokens)).monospacedDigit()
-        }
-        LabeledContent("Tokens received") {
-            Text(Format.count(summary.receivedTokens)).monospacedDigit()
-        }
-        LabeledContent("Cost") {
-            Text(Format.money(summary.costUSD)).monospacedDigit().fontWeight(.medium)
-        }
-        LabeledContent("Dictations") {
-            Text(Format.count(summary.dictations)).monospacedDigit()
-        }
-        if summary.words > 0 {
-            // The figure people can actually reason about.
-            LabeledContent("Per 1,000 words") {
-                Text(Format.money(summary.costPerThousandWords)).monospacedDigit()
-            }
-        }
-        if summary.guardRejections > 0 {
-            LabeledContent("Rejected by guard") {
-                Text("\(summary.guardRejections)").monospacedDigit().foregroundStyle(.orange)
-            }
-        }
-    }
-}
-
 enum Format {
     static func count(_ value: Int) -> String {
         value.formatted(.number.grouping(.automatic))
     }
 
-    /// Sub-cent totals are normal here, and rounding them to "$0.00" makes the
-    /// tracker look broken. Show enough digits to be believable.
+    /// Token counts run to six figures; "412k" reads at a glance where
+    /// "412,338" just becomes noise on a small card.
+    static func compact(_ value: Int) -> String {
+        switch value {
+        case ..<1_000: "\(value)"
+        case ..<1_000_000: String(format: "%.1fk", Double(value) / 1_000)
+        default: String(format: "%.1fM", Double(value) / 1_000_000)
+        }
+    }
+
+    /// Real costs here are fractions of a cent. Rounding them to "$0.00" makes
+    /// the tracker look broken, so show enough digits to be believable.
     static func money(_ value: Double) -> String {
         if value == 0 { return "$0.00" }
         if value < 0.01 { return String(format: "$%.4f", value) }
         if value < 1 { return String(format: "$%.3f", value) }
         return String(format: "$%.2f", value)
+    }
+}
+
+/// One period's spend. The cost is the headline because it's the number people
+/// actually want; tokens are the supporting detail, not the other way round.
+private struct UsageCard: View {
+    let title: String
+    let summary: UsageSummary
+    var highlighted: Bool = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Text(Format.money(summary.costUSD))
+                .font(.system(size: 21, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+                .foregroundStyle(highlighted ? Color.accentColor : Color.primary)
+
+            VStack(alignment: .leading, spacing: 2) {
+                detail("\(Format.count(summary.dictations)) dictations")
+                detail("\(Format.compact(summary.sentTokens)) sent · \(Format.compact(summary.receivedTokens)) back")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 9)
+                .fill(highlighted ? Color.accentColor.opacity(0.10) : Color.secondary.opacity(0.09))
+        )
+    }
+
+    private func detail(_ text: String) -> some View {
+        Text(text)
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
     }
 }
 
@@ -627,7 +626,7 @@ public final class SettingsWindowController {
 
         let window = NSWindow(contentViewController: NSHostingController(rootView: SettingsView(model: model)))
         window.title = "Murmur Settings"
-        window.styleMask = [.titled, .closable]
+        window.styleMask = [.titled, .closable, .resizable]
         window.isReleasedWhenClosed = false
         window.center()
         self.window = window
