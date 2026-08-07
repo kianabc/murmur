@@ -20,16 +20,20 @@ Not sure? Click the  menu → About This Mac.
 ### 1. Download
 
 Go to the [latest release](https://github.com/kianabc/murmur/releases/latest) and
-download **Murmur-1.0.0.dmg**.
+download the **.dmg** file.
 
 ### 2. Install
 
-Open the downloaded file and drag **Murmur** into your **Applications** folder.
-That's the whole install.
+Double-click the downloaded file, then drag **Murmur** into the **Applications**
+folder shown beside it. That's the whole install.
 
 ### 3. Open it
 
 Open Applications and double-click **Murmur**.
+
+macOS will ask once whether you're sure, because you downloaded it from the
+internet. Click **Open**. There's nothing else to click through — Murmur is
+signed and notarised by Apple.
 
 Murmur has no window and no Dock icon — it lives in your **menu bar**, at the top
 right of your screen. Look for a small microphone icon. That icon is how you get
@@ -95,13 +99,14 @@ in yourself.
 ### Turn on AI cleanup
 
 This is what removes the "um"s, fixes *write/ride*, and adds punctuation. It
-needs an [Anthropic API key](https://console.anthropic.com/settings/keys), which
-you pay for separately.
+needs an API key from Anthropic or OpenAI, which you pay for separately.
 
-**Settings → Cleanup** → paste your key.
+**Settings → AI Cleanup** → choose a provider, pick a model, paste your key.
+Anthropic and OpenAI are both supported, with three models each from cheapest to
+most capable.
 
-It costs roughly **$1.50 a month** if you dictate around 2,000 words a day. The
-**Usage** tab shows exactly what you've spent, so there are no surprises.
+The cheapest option runs well under **$1 a month** at around 2,000 words a day.
+The same tab shows exactly what you've spent, so there are no surprises.
 
 Without a key, Murmur still works — it just types what you said, unedited.
 
@@ -122,9 +127,9 @@ It has no Dock icon by design.
 **Nothing happens when I hold the key.** Check **Settings → Permissions**. Input
 Monitoring is almost always the missing one.
 
-**macOS says Murmur "cannot be opened".** You're on a build that Apple hasn't
-verified. Open **System Settings → Privacy & Security**, scroll down, and click
-**Open Anyway** next to the message about Murmur.
+**macOS says Murmur "cannot be opened".** Released builds are notarised by
+Apple and shouldn't trigger this. If you built it yourself, open **System
+Settings → Privacy & Security** and click **Open Anyway**.
 
 **The text goes to the clipboard instead of getting typed.** Accessibility isn't
 granted, or **Settings → General → Text output** is set to clipboard-only.

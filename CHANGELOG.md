@@ -21,19 +21,29 @@ All notable changes are recorded here. Versions follow [semantic versioning](htt
   so the two permissions a new user is most likely to be missing were silent.
 - The permissions footer now says what to do, not just what's missing.
 
-## [Unreleased]
+## [1.1.0] — 2026-08-07
 
 ### Added
-- Choose your AI provider: **Anthropic (Claude)** or **OpenAI (ChatGPT)**, each
-  with three models ordered cheapest to most capable, with a monthly estimate
-  beside each.
-- API keys are kept per provider, so switching back doesn't lose one.
-- Spend is broken out per provider — each vendor bills you separately, and a
-  combined figure can't be reconciled against either invoice.
-- Prices refresh daily from `prices.json` in this repository, so a provider
-  changing its rates doesn't require an app update. Only known model IDs and
-  sane values are accepted. Historical costs are unaffected: every request
-  stores the price in force at the time.
+- **Choose your AI provider** — Anthropic (Claude) or OpenAI (ChatGPT), each with
+  three models from cheapest to most capable, with a monthly estimate beside
+  each. Keys are kept per provider, so switching back doesn't lose one.
+- **Spend tracking** moved into the AI Cleanup tab: last 7 days, last 30 days and
+  all time, split by provider since each bills you separately.
+- **A proper welcome screen** on first run, explaining the permissions macOS
+  requires instead of dropping you into settings.
+- Prices refresh daily, so a provider changing rates doesn't need an app update.
+
+### Fixed
+- Usage was never being recorded — cleanup ran and cost money while the tracker
+  stayed at zero.
+- The app stopped listening for the dictation key in some situations.
+- A crash when the settings window was open during a dictation.
+- Silence now says "Didn't catch that" instead of appearing to do nothing.
+
+### Changed
+- Download is ~1.3 MB, down from 57 MB.
+- Requires macOS 26 or later. Below that the app installed but silently did
+  nothing.
 
 ## [1.0.0] — 2026-08-07
 
