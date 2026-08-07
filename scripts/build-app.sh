@@ -43,10 +43,24 @@ cp "$ROOT/Resources/Murmur.icns" "$APP/Contents/Resources/Murmur.icns"
 # Prefer a stable local identity so macOS keeps TCC grants across rebuilds.
 # Falls back to ad-hoc, which works but resets Microphone / Accessibility /
 # Input Monitoring every single build. See scripts/make-signing-cert.sh.
-if security find-identity -v -p codesigning 2>/dev/null | grep -q "Murmur Dev"; then
+# A Developer ID identity wins when present — that's the one that can be
+# notarised. Otherwise the local dev cert, otherwise ad-hoc.
+if [ -n "${MURMUR_SIGN_IDENTITY:-}" ]; then
+  IDENTITY="$MURMUR_SIGN_IDENTITY"
+elif security find-identity -v -p codesigning 2>/dev/null | grep -q "Developer ID Application"; then
+  IDENTITY="$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | sed 's/.*"\(.*\)"/\1/')"
+elif security find-identity -v -p codesigning 2>/dev/null | grep -q "Murmur Dev"; then
   IDENTITY="Murmur Dev"
 else
   IDENTITY="-"
+fi
+
+# Notarisation requires a secure (Apple-issued) timestamp. Ad-hoc signing can't
+# use one, and skipping it locally avoids a network round trip on every build.
+if [ "$IDENTITY" = "-" ]; then
+  TIMESTAMP_FLAG="--timestamp=none"
+else
+  TIMESTAMP_FLAG="--timestamp"
 fi
 
 # Hardened runtime is mandatory for notarisation, and it is applied to local
@@ -54,7 +68,7 @@ fi
 codesign --force --sign "$IDENTITY" \
   --options runtime \
   --entitlements "$ROOT/Resources/Murmur.entitlements" \
-  --timestamp=none \
+  $TIMESTAMP_FLAG \
   "$APP"
 
-echo "built $APP — v$VERSION ($BUILD, $SHA, $CONFIG)"
+echo "built $APP — v$VERSION ($BUILD, $SHA, $CONFIG, signed by: $IDENTITY)"
