@@ -255,6 +255,36 @@ case "seed-usage":
     }
     print("seeded 45 days of usage")
 
+case "reentrancy-selftest":
+    // Reproduces the crash: an observer that reads the store while a write is
+    // in flight. Before the fix this trapped inside dispatch.
+    let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("reentry-\(UUID().uuidString).sqlite")
+    defer { try? FileManager.default.removeItem(at: tmp) }
+    let store = try! UsageStore(url: tmp)
+    var observed = 0
+    let token = NotificationCenter.default.addObserver(
+        forName: .murmurUsageRecorded, object: nil, queue: nil
+    ) { _ in
+        // Reading from inside the notification is the dangerous part.
+        _ = store.summary(since: nil)
+        observed += 1
+    }
+    defer { NotificationCenter.default.removeObserver(token) }
+
+    for _ in 0..<5 {
+        store.record(UsageEvent(
+            provider: "anthropic", model: "claude-haiku-4-5",
+            inputTokens: 500, outputTokens: 40,
+            priceInPerMTok: 1.0, priceOutPerMTok: 5.0,
+            latencyMs: 1200, guardFired: false, wordCount: 20))
+    }
+    // Notifications hop to main, so let the run loop drain.
+    try? await Task.sleep(for: .milliseconds(500))
+    let total = store.summary(since: nil)
+    print(total.dictations == 5 ? "PASS  5 rows written" : "FAIL  \(total.dictations) rows")
+    print(observed == 5 ? "PASS  5 notifications observed without trapping" : "FAIL  \(observed) observed")
+
 case "guard":
     // Sanity-check the diff guard against realistic pairs. If this over-rejects,
     // the cleanup pass is silently disabled for everyone.

@@ -191,6 +191,7 @@ public final class UsageStore {
     // MARK: - Recording
 
     public func record(_ event: UsageEvent, at date: Date = Date()) {
+        var wrote = false
         queue.sync {
             let sql = """
             INSERT INTO usage (
@@ -224,9 +225,17 @@ public final class UsageStore {
             let status = sqlite3_step(stmt)
             if status != SQLITE_DONE {
                 Log.echo("usage: WRITE FAILED (\(status)) — \(String(cString: sqlite3_errmsg(db)))")
-            } else {
-                NotificationCenter.default.post(name: .murmurUsageRecorded, object: nil)
             }
+            wrote = status == SQLITE_DONE
+        }
+
+        // Posted *outside* queue.sync, and hopped to main. An observer that
+        // reads the store — which is exactly what the settings window does —
+        // would otherwise re-enter queue.sync on the queue's own thread, and
+        // dispatch traps on that.
+        guard wrote else { return }
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .murmurUsageRecorded, object: nil)
         }
     }
 
