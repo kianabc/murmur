@@ -18,7 +18,7 @@ import MurmurStore
 // Never read the app's Keychain item from a CLI: a separate ad-hoc-signed binary
 // makes macOS prompt for the login password on every rebuild, because its
 // identity changes each build. Use ANTHROPIC_API_KEY for command-line testing.
-AnthropicProvider.useKeychain = false
+KeyStore.useKeychain = false
 
 func fail(_ message: String) -> Never {
     FileHandle.standardError.write("\(message)\n".data(using: .utf8)!)
@@ -82,12 +82,12 @@ case "cleanup":
     guard args.count >= 2 else { fail("usage: murmur-cli cleanup \"<text>\"") }
     let input = args[1]
     // Optional 3rd arg overrides the model, for benchmarking.
-    let chosen = args.count >= 3 ? (CleanupModel(rawValue: args[2]) ?? CleanupPreference.model)
+    let chosen = args.count >= 3 ? (CleanupModelSpec.find(args[2]) ?? CleanupPreference.model)
                                  : CleanupPreference.model
-    let provider = AnthropicProvider(model: chosen)
+    let service = CleanupService(model: chosen)
     do {
-        let result = try await provider.clean(input, context: CleanupContext(appName: "Notes"))
-        print("model:     \(chosen.rawValue)")
+        let result = try await service.clean(input, context: CleanupContext(appName: "Notes"))
+        print("model:     \(chosen.displayName) [\(chosen.provider.displayName)]")
         print("in:        \(input)")
         print("out:       \(result.text)")
         print("applied:   \(result.usedCleanup)")
@@ -120,7 +120,7 @@ case "usage-selftest":
 
     // Haiku pricing: $1 / $5 per MTok.
     let recent = UsageEvent(
-        model: "claude-haiku-4-5", inputTokens: 600, outputTokens: 40,
+        provider: "anthropic", model: "claude-haiku-4-5", inputTokens: 600, outputTokens: 40,
         priceInPerMTok: 1.0, priceOutPerMTok: 5.0,
         latencyMs: 1500, guardFired: false, wordCount: 15
     )
@@ -129,7 +129,7 @@ case "usage-selftest":
     store.record(recent)
     // One 60 days ago: should land in all-time but not the 30-day window.
     store.record(
-        UsageEvent(model: "claude-sonnet-5", inputTokens: 1000, outputTokens: 100,
+        UsageEvent(provider: "anthropic", model: "claude-sonnet-5", inputTokens: 1000, outputTokens: 100,
                    priceInPerMTok: 3.0, priceOutPerMTok: 15.0,
                    latencyMs: 3000, guardFired: true, wordCount: 20),
         at: Date().addingTimeInterval(-60 * 86_400)
@@ -240,6 +240,7 @@ case "seed-usage":
         for _ in 0..<Int.random(in: 2...9) {
             store.record(
                 UsageEvent(
+                    provider: "anthropic",
                     model: "claude-haiku-4-5",
                     inputTokens: Int.random(in: 380...900),
                     outputTokens: Int.random(in: 20...80),

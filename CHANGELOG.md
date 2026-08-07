@@ -21,6 +21,20 @@ All notable changes are recorded here. Versions follow [semantic versioning](htt
   so the two permissions a new user is most likely to be missing were silent.
 - The permissions footer now says what to do, not just what's missing.
 
+## [Unreleased]
+
+### Added
+- Choose your AI provider: **Anthropic (Claude)** or **OpenAI (ChatGPT)**, each
+  with three models ordered cheapest to most capable, with a monthly estimate
+  beside each.
+- API keys are kept per provider, so switching back doesn't lose one.
+- Spend is broken out per provider — each vendor bills you separately, and a
+  combined figure can't be reconciled against either invoice.
+- Prices refresh daily from `prices.json` in this repository, so a provider
+  changing its rates doesn't require an app update. Only known model IDs and
+  sane values are accepted. Historical costs are unaffected: every request
+  stores the price in force at the time.
+
 ## [1.0.0] — 2026-08-07
 
 First public release. Signed with a Developer ID and notarised by Apple, so it

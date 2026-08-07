@@ -54,22 +54,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     Log.echo("cleanup: skipped — disabled in Settings")
                     return corrected
                 }
-                guard AnthropicProvider.hasKey else {
+                guard KeyStore.hasKey(for: CleanupPreference.model.provider) else {
                     Log.echo("cleanup: skipped — no API key readable")
                     return corrected
                 }
 
                 do {
-                    let provider = AnthropicProvider(model: CleanupPreference.model)
+                    let service = CleanupService(model: CleanupPreference.model)
                     let context = CleanupContext(
                         appName: app?.localizedName,
                         appBundleID: app?.bundleIdentifier,
                         vocabulary: store.vocabulary(for: app?.bundleIdentifier)
                     )
-                    let result = try await provider.clean(corrected, context: context)
-                    let pricing = CleanupPreference.model.pricing
+                    let result = try await service.clean(corrected, context: context)
+                    let spec = CleanupPreference.model
+                    let pricing = spec.pricing
                     usage?.record(UsageEvent(
-                        model: CleanupPreference.model.rawValue,
+                        provider: spec.provider.rawValue,
+                        model: spec.id,
                         inputTokens: result.uncachedInputTokens,
                         outputTokens: result.outputTokens,
                         cacheWriteTokens: result.cacheWriteTokens,
@@ -126,7 +128,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Log.echo(String(
             format: "cleanup: %@ · model %@",
             CleanupPreference.isEnabled ? "on" : "off",
-            CleanupPreference.model.rawValue
+            CleanupPreference.model.displayName
         ))
 
         if CommandLine.arguments.contains("--test") {
@@ -154,6 +156,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         prepareEngine(engine)
         checkForUpdatesIfDue()
+        // Providers change prices on their own schedule; a compiled-in table
+        // goes stale the moment they do.
+        Task { await PriceTable.refreshIfDue() }
     }
 
     /// Apple's streaming recogniser. The package requires macOS 26, so there is

@@ -23,7 +23,18 @@ public final class SettingsModel: ObservableObject {
     @Published var apiKey = ""
     @Published var hasStoredKey = false
     @Published var cleanupEnabled: Bool { didSet { CleanupPreference.isEnabled = cleanupEnabled } }
-    @Published var cleanupModel: CleanupModel { didSet { CleanupPreference.model = cleanupModel } }
+    /// Changing provider moves the model to that provider's cheapest, which is
+    /// also the sensible default — nobody wants to be dropped onto the priciest
+    /// option by switching vendors.
+    @Published var cleanupProvider: CleanupProvider {
+        didSet {
+            guard cleanupProvider != oldValue else { return }
+            cleanupModel = cleanupProvider.defaultModel
+            apiKey = ""
+            hasStoredKey = Keychain.isPresent(cleanupProvider.keychainAccount)
+        }
+    }
+    @Published var cleanupModel: CleanupModelSpec { didSet { CleanupPreference.model = cleanupModel } }
 
     // Corrections
     @Published var entries: [Correction] = []
@@ -78,7 +89,7 @@ public final class SettingsModel: ObservableObject {
     @Published var last7: UsageSummary = .empty
     @Published var last30: UsageSummary = .empty
     @Published var allTime: UsageSummary = .empty
-    @Published var byModel: [ModelUsage] = []
+    @Published var byProvider: [ProviderUsage] = []
     @Published var trackingSince: Date?
 
     private let store: CorrectionStore
@@ -94,10 +105,11 @@ public final class SettingsModel: ObservableObject {
         self.insertion = InsertionPreference.current
         self.cleanupEnabled = CleanupPreference.isEnabled
         self.cleanupModel = CleanupPreference.model
+        self.cleanupProvider = CleanupPreference.model.provider
         // Never read the stored key back. A Keychain read can raise a modal
         // prompt, and drawing a settings pane is no place for one. We only track
         // *that* a key exists; the value itself is read once, at request time.
-        self.hasStoredKey = Keychain.isPresent(AnthropicProvider.keychainAccount)
+        self.hasStoredKey = Keychain.isPresent(CleanupPreference.model.provider.keychainAccount)
         refresh()
     }
 
@@ -109,7 +121,7 @@ public final class SettingsModel: ObservableObject {
             last7 = usage.summary(since: cal.date(byAdding: .day, value: -7, to: Date()))
             last30 = usage.summary(since: cal.date(byAdding: .day, value: -30, to: Date()))
             allTime = usage.summary(since: nil)
-            byModel = usage.byModel(since: nil)
+            byProvider = usage.byProvider(since: nil)
             trackingSince = usage.firstRecordedAt()
         }
         var next: [Permission: PermissionState] = [:]
@@ -124,16 +136,16 @@ public final class SettingsModel: ObservableObject {
     func saveKey() {
         let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        Keychain.set(trimmed, for: AnthropicProvider.keychainAccount)
-        AnthropicProvider.invalidateKeyCache()
+        Keychain.set(trimmed, for: cleanupProvider.keychainAccount)
+        KeyStore.invalidate(cleanupProvider)
         hasStoredKey = true
         // Drop it from memory — the field shows "saved" from here on.
         apiKey = ""
     }
 
     func clearKey() {
-        Keychain.set(nil, for: AnthropicProvider.keychainAccount)
-        AnthropicProvider.invalidateKeyCache()
+        Keychain.set(nil, for: cleanupProvider.keychainAccount)
+        KeyStore.invalidate(cleanupProvider)
         hasStoredKey = false
         apiKey = ""
     }
@@ -279,11 +291,17 @@ private struct CleanupTab: View {
 
             if model.cleanupEnabled {
                 Section {
+                    Picker("Provider", selection: $model.cleanupProvider) {
+                        ForEach(CleanupProvider.allCases) { Text($0.displayName).tag($0) }
+                    }
                     Picker("Model", selection: $model.cleanupModel) {
-                        ForEach(CleanupModel.allCases, id: \.self) { Text($0.displayName).tag($0) }
+                        // Cheapest first, so cost rises as you scroll down.
+                        ForEach(model.cleanupProvider.models) { spec in
+                            Text("\(spec.displayName)  ·  \(spec.monthlyEstimate)").tag(spec)
+                        }
                     }
                 } footer: {
-                    Text(model.cleanupModel.tradeoff).font(.caption).foregroundStyle(.secondary)
+                    Text(model.cleanupModel.blurb).font(.caption).foregroundStyle(.secondary)
                 }
 
                 Section {
@@ -300,7 +318,7 @@ private struct CleanupTab: View {
                             HStack(spacing: 6) {
                                 // Plain field, not SecureField: it has to accept
                                 // ⌘V, and nobody types one of these by hand.
-                                TextField("sk-ant-…", text: $model.apiKey)
+                                TextField(model.cleanupProvider.keyPrefixHint, text: $model.apiKey)
                                     .textFieldStyle(.roundedBorder)
                                     .focused($keyFocused)
                                     .onSubmit(commit)
@@ -310,10 +328,16 @@ private struct CleanupTab: View {
                         }
                     }
                 } footer: {
-                    Text(model.hasStoredKey
-                         ? "Held in your Keychain. Murmur reads it once per launch, when it first cleans a transcript."
-                         : "Without a key, dictation still works — it just skips the cleanup pass.")
+                    if model.hasStoredKey {
+                        Text("Held in your Keychain. Keys are kept per provider, so switching back doesn't lose one.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        HStack(spacing: 4) {
+                            Text("Without a key, dictation still works — it just skips the cleanup pass.")
+                            Link("Get a key", destination: model.cleanupProvider.keyURL)
+                        }
                         .font(.caption).foregroundStyle(.secondary)
+                    }
                 }
 
                 Section {
@@ -331,10 +355,22 @@ private struct CleanupTab: View {
                             .buttonStyle(.borderless)
                             .font(.caption)
                     }
+                    if model.byProvider.count > 1 {
+                        // Each vendor bills separately, so a combined total
+                        // can't be reconciled against either invoice.
+                        Divider().padding(.vertical, 2)
+                        ForEach(model.byProvider) { entry in
+                            LabeledContent(Format.providerName(entry.provider)) {
+                                Text(Format.money(entry.summary.costUSD))
+                                    .monospacedDigit()
+                            }
+                            .font(.callout)
+                        }
+                    }
                 } footer: {
                     Text(model.allTime.dictations == 0
                          ? "Nothing yet — figures appear after your first cleaned transcript."
-                         : "Counts come from the API's own usage figures. Each request stores the prices in effect at the time, so past costs never change if pricing does.")
+                         : "Counts come from each API's own usage figures. Every request stores the prices in force at the time, so past costs never change when pricing does.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
@@ -453,6 +489,10 @@ private struct AboutTab: View {
 }
 
 enum Format {
+    static func providerName(_ raw: String) -> String {
+        CleanupProvider(rawValue: raw)?.displayName ?? raw
+    }
+
     static func count(_ value: Int) -> String {
         value.formatted(.number.grouping(.automatic))
     }

@@ -5,6 +5,7 @@ private let SQLITE_TRANSIENT_USAGE = unsafeBitCast(-1, to: sqlite3_destructor_ty
 
 /// One cleanup request.
 public struct UsageEvent: Sendable {
+    public let provider: String
     public let model: String
     /// Prompt tokens billed at full rate — the API's `input_tokens`, which is
     /// the *uncached remainder*, not the whole prompt.
@@ -21,6 +22,7 @@ public struct UsageEvent: Sendable {
     public let appBundleID: String?
 
     public init(
+        provider: String,
         model: String,
         inputTokens: Int,
         outputTokens: Int,
@@ -33,6 +35,7 @@ public struct UsageEvent: Sendable {
         wordCount: Int,
         appBundleID: String? = nil
     ) {
+        self.provider = provider
         self.model = model
         self.inputTokens = inputTokens
         self.outputTokens = outputTokens
@@ -82,6 +85,14 @@ public struct ModelUsage: Sendable, Identifiable {
     public let model: String
     public let summary: UsageSummary
     public var id: String { model }
+}
+
+/// Spend for one vendor. Kept apart because each bills you separately — a
+/// combined figure can't be reconciled against either invoice.
+public struct ProviderUsage: Sendable, Identifiable {
+    public let provider: String
+    public let summary: UsageSummary
+    public var id: String { provider }
 }
 
 /// Append-only log of cleanup requests.
@@ -138,6 +149,7 @@ public final class UsageStore {
           id                  TEXT PRIMARY KEY,
           ts                  INTEGER NOT NULL,
           app_bundle_id       TEXT,
+          provider            TEXT NOT NULL DEFAULT 'anthropic',
           model               TEXT NOT NULL,
           input_tokens        INTEGER NOT NULL,
           output_tokens       INTEGER NOT NULL,
@@ -158,6 +170,21 @@ public final class UsageStore {
             sqlite3_free(error)
             throw StoreFailure.exec(message)
         }
+        addProviderColumnIfMissing()
+    }
+
+    /// 1.0.0 shipped without a provider column. Existing rows predate multiple
+    /// providers, so they were all Anthropic.
+    private func addProviderColumnIfMissing() {
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "PRAGMA table_info(usage);", -1, &stmt, nil) == SQLITE_OK else { return }
+        var found = false
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            if String(cString: sqlite3_column_text(stmt, 1)) == "provider" { found = true }
+        }
+        sqlite3_finalize(stmt)
+        guard !found else { return }
+        sqlite3_exec(db, "ALTER TABLE usage ADD COLUMN provider TEXT NOT NULL DEFAULT 'anthropic';", nil, nil, nil)
     }
 
     // MARK: - Recording
@@ -166,11 +193,11 @@ public final class UsageStore {
         queue.sync {
             let sql = """
             INSERT INTO usage (
-              id, ts, app_bundle_id, model,
+              id, ts, app_bundle_id, provider, model,
               input_tokens, output_tokens, cache_write_tokens, cache_read_tokens,
               price_in_per_mtok, price_out_per_mtok, cost_usd,
               latency_ms, guard_fired, word_count
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?);
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);
             """
             var stmt: OpaquePointer?
             guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
@@ -179,18 +206,19 @@ public final class UsageStore {
             sqlite3_bind_text(stmt, 1, UUID().uuidString, -1, SQLITE_TRANSIENT_USAGE)
             sqlite3_bind_int64(stmt, 2, Int64(date.timeIntervalSince1970))
             sqlite3_bind_text(stmt, 3, event.appBundleID ?? "", -1, SQLITE_TRANSIENT_USAGE)
-            sqlite3_bind_text(stmt, 4, event.model, -1, SQLITE_TRANSIENT_USAGE)
-            sqlite3_bind_int(stmt, 5, Int32(event.inputTokens))
-            sqlite3_bind_int(stmt, 6, Int32(event.outputTokens))
-            sqlite3_bind_int(stmt, 7, Int32(event.cacheWriteTokens))
-            sqlite3_bind_int(stmt, 8, Int32(event.cacheReadTokens))
-            sqlite3_bind_double(stmt, 9, event.priceInPerMTok)
-            sqlite3_bind_double(stmt, 10, event.priceOutPerMTok)
+            sqlite3_bind_text(stmt, 4, event.provider, -1, SQLITE_TRANSIENT_USAGE)
+            sqlite3_bind_text(stmt, 5, event.model, -1, SQLITE_TRANSIENT_USAGE)
+            sqlite3_bind_int(stmt, 15, Int32(event.inputTokens))
+            sqlite3_bind_int(stmt, 15, Int32(event.outputTokens))
+            sqlite3_bind_int(stmt, 15, Int32(event.cacheWriteTokens))
+            sqlite3_bind_int(stmt, 15, Int32(event.cacheReadTokens))
+            sqlite3_bind_double(stmt, 15, event.priceInPerMTok)
+            sqlite3_bind_double(stmt, 15, event.priceOutPerMTok)
             // Resolved now, never recomputed — see the type doc.
-            sqlite3_bind_double(stmt, 11, event.costUSD)
-            sqlite3_bind_int(stmt, 12, Int32(event.latencyMs))
-            sqlite3_bind_int(stmt, 13, event.guardFired ? 1 : 0)
-            sqlite3_bind_int(stmt, 14, Int32(event.wordCount))
+            sqlite3_bind_double(stmt, 15, event.costUSD)
+            sqlite3_bind_int(stmt, 15, Int32(event.latencyMs))
+            sqlite3_bind_int(stmt, 15, event.guardFired ? 1 : 0)
+            sqlite3_bind_int(stmt, 15, Int32(event.wordCount))
 
             sqlite3_step(stmt)
         }
@@ -227,6 +255,46 @@ public final class UsageStore {
                 guardRejections: Int(sqlite3_column_int(stmt, 5)),
                 averageLatencyMs: Int(sqlite3_column_double(stmt, 6))
             )
+        }
+    }
+
+    /// Spend split by vendor, so each can be checked against its own invoice.
+    public func byProvider(since: Date?) -> [ProviderUsage] {
+        queue.sync {
+            let sql = """
+            SELECT provider, COUNT(*),
+                   COALESCE(SUM(input_tokens + cache_write_tokens + cache_read_tokens), 0),
+                   COALESCE(SUM(output_tokens), 0),
+                   COALESCE(SUM(cost_usd), 0),
+                   COALESCE(SUM(word_count), 0),
+                   COALESCE(SUM(guard_fired), 0),
+                   COALESCE(AVG(latency_ms), 0)
+            FROM usage
+            WHERE (?1 = 0 OR ts >= ?1)
+            GROUP BY provider
+            ORDER BY SUM(cost_usd) DESC;
+            """
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
+            defer { sqlite3_finalize(stmt) }
+            sqlite3_bind_int64(stmt, 1, Int64(since?.timeIntervalSince1970 ?? 0))
+
+            var rows: [ProviderUsage] = []
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                rows.append(ProviderUsage(
+                    provider: String(cString: sqlite3_column_text(stmt, 0)),
+                    summary: UsageSummary(
+                        dictations: Int(sqlite3_column_int(stmt, 1)),
+                        sentTokens: Int(sqlite3_column_int64(stmt, 2)),
+                        receivedTokens: Int(sqlite3_column_int64(stmt, 3)),
+                        costUSD: sqlite3_column_double(stmt, 4),
+                        words: Int(sqlite3_column_int64(stmt, 5)),
+                        guardRejections: Int(sqlite3_column_int(stmt, 6)),
+                        averageLatencyMs: Int(sqlite3_column_double(stmt, 7))
+                    )
+                ))
+            }
+            return rows
         }
     }
 
