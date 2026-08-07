@@ -8,7 +8,6 @@ See [SPEC.md](SPEC.md) for the design. `murmur` is a placeholder name.
 ## Build
 
 ```bash
-./scripts/fetch-deps.sh         # once, after a fresh clone (~54 MB)
 ./scripts/build-app.sh          # debug
 open build/Murmur.app
 ```
@@ -68,10 +67,12 @@ Ad-hoc code signing means the app's identity changes on every rebuild, so macOS
 re-asks each time. A real Developer ID (SPEC.md §9) fixes that and is required
 before sharing the app.
 
-## Third-party
+## License
 
-- [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (Apache-2.0) — ASR runtime,
-  vendored as a prebuilt xcframework in `Frameworks/`. See SPEC.md §2 for which
-  variant and why.
-- Parakeet TDT 0.6b v3 (CC-BY, NVIDIA) — attribution required.
-- Silero VAD (MIT).
+MIT — see [LICENSE](LICENSE).
+
+## Requirements
+
+- macOS 26 or later (Apple's `SpeechAnalyzer` streaming recogniser)
+- Apple Silicon
+- An Anthropic API key, only if you want the AI cleanup pass — dictation works without one
