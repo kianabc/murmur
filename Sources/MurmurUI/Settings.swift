@@ -4,6 +4,13 @@ import MurmurCore
 import MurmurStore
 import SwiftUI
 
+/// Tabs are addressable so the app can open straight to the one that matters —
+/// landing a first-time user on General when they need Permissions is how the
+/// setup step gets missed.
+public enum SettingsTab: Hashable, Sendable {
+    case general, cleanup, corrections, usage, permissions, about
+}
+
 // MARK: - Model
 
 @MainActor
@@ -27,6 +34,7 @@ public final class SettingsModel: ObservableObject {
 
     // Permissions
     @Published var permissionStates: [Permission: PermissionState] = [:]
+    @Published var selectedTab: SettingsTab = .general
 
     // Updates
     @Published var updateStatus = ""
@@ -194,19 +202,25 @@ struct SettingsView: View {
     @ObservedObject var model: SettingsModel
 
     var body: some View {
-        TabView {
+        TabView(selection: $model.selectedTab) {
             GeneralTab(model: model)
                 .tabItem { Label("General", systemImage: "gearshape") }
+                .tag(SettingsTab.general)
             CleanupTab(model: model)
                 .tabItem { Label("Cleanup", systemImage: "wand.and.sparkles") }
+                .tag(SettingsTab.cleanup)
             CorrectionsTab(model: model)
                 .tabItem { Label("Corrections", systemImage: "character.cursor.ibeam") }
+                .tag(SettingsTab.corrections)
             UsageTab(model: model)
                 .tabItem { Label("Usage", systemImage: "chart.bar") }
+                .tag(SettingsTab.usage)
             PermissionsTab(model: model)
                 .tabItem { Label("Permissions", systemImage: "lock.shield") }
+                .tag(SettingsTab.permissions)
             AboutTab(model: model)
                 .tabItem { Label("About", systemImage: "info.circle") }
+                .tag(SettingsTab.about)
         }
         .frame(width: 520, height: 430)
     }
@@ -537,8 +551,8 @@ private struct PermissionsTab: View {
                 Text("Required access")
             } footer: {
                 Text(model.missingRequired.isEmpty
-                     ? "Everything Murmur needs is granted."
-                     : "Still needed: \(model.missingRequired.map(\.title).joined(separator: ", ")).")
+                     ? "Everything Murmur needs is granted. Hold your dictation key and speak."
+                     : "Still needed: \(model.missingRequired.map(\.title).joined(separator: ", ")). Click Grant on each — macOS opens System Settings, you flip the switch, then come back and click Check again.")
                     .font(.caption)
                     .foregroundStyle(model.missingRequired.isEmpty ? Color.secondary : Color.orange)
             }
@@ -592,9 +606,13 @@ public final class SettingsWindowController {
         self.onHotkeyChange = onHotkeyChange
     }
 
-    public func show(lastTranscript: String = "") {
+    public func show(lastTranscript: String = "", tab: SettingsTab? = nil) {
         let model = self.model
         model.lastTranscript = lastTranscript
+        if let tab {
+            model.selectedTab = tab
+            Log.echo("settings: opening on \(tab) tab")
+        }
         model.refresh()
 
         // A menu-bar-only app can't take focus, so become a regular app while a

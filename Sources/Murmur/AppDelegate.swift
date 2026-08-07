@@ -135,6 +135,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             settings?.show()
         } else {
             beginListening()
+            // Missing permissions used to surface only when the event tap failed,
+            // so a first run with the mic or Accessibility ungranted showed
+            // nothing at all — just a menu bar icon that did nothing.
+            showPermissionsIfIncomplete()
         }
 
         prepareEngine(engine)
@@ -165,6 +169,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Anything the current configuration genuinely needs. Accessibility only
+    /// counts when the user has asked for text to be typed into other apps.
+    private var missingPermissions: [Permission] {
+        var needed: [Permission] = [.microphone, .inputMonitoring]
+        if InsertionPreference.current.requiresAccessibility { needed.append(.accessibility) }
+        return needed.filter { permissions.state(of: $0) != .granted }
+    }
+
+    private func showPermissionsIfIncomplete() {
+        // MURMUR_FORCE_SETUP exercises the first-run path on a machine where
+        // everything is already granted — otherwise this branch is only
+        // reachable by revoking real permissions.
+        let forced = ProcessInfo.processInfo.environment["MURMUR_FORCE_SETUP"] == "1"
+        let missing = missingPermissions
+        guard forced || !missing.isEmpty else { return }
+        Log.echo("setup incomplete — missing: \(missing.isEmpty ? "none (forced)" : missing.map(\.rawValue).joined(separator: ", "))")
+        // Straight to the Permissions tab. Opening on General is how people miss
+        // that anything is required at all.
+        settings?.show(tab: .permissions)
+    }
+
     private func beginListening() {
         guard !controller.isListening else { return }
         if controller.startListening() {
@@ -172,7 +197,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             // Tap creation fails when Input Monitoring hasn't been granted.
             Log.echo("event tap refused — Input Monitoring not granted")
-            settings?.show()
+            settings?.show(tab: .permissions)
         }
     }
 

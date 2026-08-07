@@ -3,6 +3,16 @@
 All notable changes are recorded here. Versions follow [semantic versioning](https://semver.org):
 `MAJOR.MINOR.PATCH` — patch for fixes, minor for features, major for breaking changes.
 
+## [1.0.1] — 2026-08-07
+
+### Fixed
+- First launch now opens Settings on the Permissions tab when setup is
+  incomplete. Since permissions moved into Settings, a first run with the
+  microphone or Accessibility ungranted showed nothing at all — only a menu bar
+  icon that appeared to do nothing. Only a failing hotkey triggered the prompt,
+  so the two permissions a new user is most likely to be missing were silent.
+- The permissions footer now says what to do, not just what's missing.
+
 ## [1.0.0] — 2026-08-07
 
 First public release. Signed with a Developer ID and notarised by Apple, so it
