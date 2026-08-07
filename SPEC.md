@@ -489,7 +489,33 @@ The tracker's real job isn't policing spend — it's proving the pipeline is hea
 
 Onboarding walks them one at a time with a "check again" button per step and a plain explanation of why each is needed. Budget real design time here — it deserves more than it sounds like.
 
-**Distribution:** Developer ID + notarization ($99/yr). Not optional — an unsigned app that immediately asks for Accessibility and Input Monitoring is an app your friend does not install. App Store is categorically out: its sandbox forbids global event taps and AX control of other apps.
+**Distribution:** Developer ID + notarization ($99/yr). Not optional — an unsigned app that immediately asks for Accessibility and Input Monitoring is an app your friend does not install.
+
+**Mac App Store — ruled out, but for a narrower reason than first written.** An
+earlier draft here said the sandbox forbids "global event taps and AX control of
+other apps". The first half is wrong: `CGEventTap` *monitoring* works in a
+sandboxed app, because it runs on the Input Monitoring privilege rather than
+Accessibility. The hotkey would be fine on the App Store.
+
+What actually blocks it is Accessibility. Apple DTS is unambiguous —
+[asked whether `AXUIElementCreateApplication()` is possible in a sandboxed app,
+the answer is "No"](https://developer.apple.com/forums/thread/756130), and
+sandboxed apps cannot send synthetic keystrokes or read another app's state. That
+removes both:
+
+| Feature | Sandboxed / App Store |
+|---|---|
+| Global hotkey (`CGEventTap`, Input Monitoring) | ✅ works |
+| Caret position via `AXUIElement` on another app | ❌ blocked |
+| Synthetic ⌘V into the frontmost app | ❌ blocked |
+| Clipboard-only output | ✅ works |
+
+So an App Store build is possible in principle, but only as clipboard-only: dictate,
+then press ⌘V yourself, with the HUD parked at a fixed screen position instead of
+following the caret. That is a materially worse product and a second build to
+maintain. Direct distribution stays the plan — which is also why every app in this
+category (Alfred, Keyboard Maestro, BetterTouchTool, Raycast) ships outside the
+App Store.
 
 **Updates:** Sparkle, or you're texting zip files forever.
 
