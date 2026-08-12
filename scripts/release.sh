@@ -35,7 +35,13 @@ fi
 
 echo "$VERSION" > VERSION
 git add VERSION CHANGELOG.md
-git commit -m "Release $VERSION"
+# VERSION and the changelog are often bumped as part of the feature commit, in
+# which case there is nothing left to commit here — that's fine, not an error.
+if git diff --cached --quiet; then
+  echo "VERSION and CHANGELOG.md already committed — tagging that commit"
+else
+  git commit -m "Release $VERSION"
+fi
 git tag -a "v$VERSION" -m "Release $VERSION"
 
 echo
