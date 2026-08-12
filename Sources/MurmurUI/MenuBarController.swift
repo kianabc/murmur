@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import MurmurCleanup
 import MurmurCore
 
 /// The menu bar item. Its icon is the primary status display — users need to
@@ -26,6 +27,11 @@ public final class MenuBarController {
                 self?.apply(state)
                 self?.rebuildMenu()
             }
+            .store(in: &cancellables)
+
+        NotificationCenter.default.publisher(for: .murmurKeyStatusChanged)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.rebuildMenu() }
             .store(in: &cancellables)
     }
 
@@ -68,6 +74,20 @@ public final class MenuBarController {
         let menu = NSMenu()
         menu.addItem(statusRow())
         menu.addItem(.separator())
+
+        // A dead key is silent otherwise: cleanup just stops happening and the
+        // transcript still lands, so the menu has to say it out loud.
+        let rejected = CleanupProvider.allCases.filter { KeyStatusStore.status(for: $0).isRejected }
+        for provider in rejected {
+            let item = NSMenuItem(
+                title: "⚠︎ \(provider.displayName) rejected your API key",
+                action: #selector(showSettings),
+                keyEquivalent: ""
+            )
+            item.target = self
+            menu.addItem(item)
+        }
+        if !rejected.isEmpty { menu.addItem(.separator()) }
 
         if !permissions.allGranted {
             let item = NSMenuItem(

@@ -29,12 +29,15 @@ public struct CleanupResult: Sendable {
 
 public enum CleanupError: LocalizedError {
     case noAPIKey(CleanupProvider)
+    /// The provider refused the key — revoked, mistyped, or out of credit.
+    case invalidKey(CleanupProvider, String)
     case http(Int, String)
     case malformed(String)
 
     public var errorDescription: String? {
         switch self {
         case .noAPIKey(let provider): "No \(provider.displayName) API key set"
+        case .invalidKey(let provider, _): "\(provider.displayName) rejected your API key"
         // Status only. The body is remote-controlled and ends up in a log file.
         case .http(let code, _): "API error \(code)"
         case .malformed(let detail): "Unexpected response: \(detail)"
@@ -132,12 +135,25 @@ public struct CleanupService: Sendable {
         }
 
         let started = Date()
-        let completion = try await backend.send(
+        let completion: RawCompletion
+        do {
+            completion = try await backend.send(
             prompt: CleanupPrompt(raw: raw, context: context),
             model: model,
-            key: key,
-            session: session
-        )
+                key: key,
+                session: session
+            )
+            // A request that succeeds is also proof the key is good, so the
+            // status stays current without any extra round trip.
+            KeyStatusStore.markValid(model.provider)
+        } catch let CleanupError.http(code, body) where code == 401 || code == 403 {
+            // Auth failures are the one error worth surfacing loudly: everything
+            // else degrades to the raw transcript and is invisible, but a dead
+            // key stays dead until someone replaces it.
+            let reason = Self.reason(from: Data(body.utf8)) ?? "Key was rejected"
+            KeyStatusStore.markRejected(model.provider, reason: reason)
+            throw CleanupError.invalidKey(model.provider, reason)
+        }
         let latency = Date().timeIntervalSince(started)
         let cleaned = Self.extractCleaned(from: completion.text)
 
@@ -210,6 +226,8 @@ public enum KeyStore {
         lock.lock()
         cache[provider] = nil
         lock.unlock()
+        // A new key deserves a fresh verdict.
+        KeyStatusStore.reset(provider)
     }
 
     /// Whether a key is available. Reads the Keychain on first call, so only

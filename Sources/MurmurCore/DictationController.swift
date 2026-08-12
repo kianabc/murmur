@@ -186,6 +186,13 @@ public final class DictationController: ObservableObject {
         }
     }
 
+    /// Surface a problem in the HUD without discarding the text that was just
+    /// inserted — the transcript is fine, something downstream isn't.
+    public func reportProblem(_ message: String) {
+        state = .failed(message)
+        resetSoon()
+    }
+
     private func cancel() {
         engine.cancelCapture()
         partialText = ""

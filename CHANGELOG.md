@@ -3,23 +3,19 @@
 All notable changes are recorded here. Versions follow [semantic versioning](https://semver.org):
 `MAJOR.MINOR.PATCH` — patch for fixes, minor for features, major for breaking changes.
 
-## [1.0.1] — 2026-08-07
+## [1.2.0] — 2026-08-12
 
-### Changed
-- The Cleanup tab is now **AI Cleanup**, and usage moved into it — what you've
-  spent belongs beside the switch that causes the spending, not in a separate
-  tab.
-- Spend is shown as three cards: last 7 days, last 30 days, and all time, with
-  the cost as the headline figure and tokens as supporting detail.
-- The settings window is taller and resizable so nothing is clipped.
+### Added
+- **Murmur now tells you when your API key stops working.** If your provider
+  rejects it — revoked, mistyped, or out of credit — the AI Cleanup tab marks it
+  **Rejected**, with the provider's own explanation and a link to get a new one.
+  A warning also appears in the menu bar until you replace it.
+- **A Test button** beside your saved key, so you can check it works without
+  waiting to find out mid-sentence. A newly pasted key is checked automatically.
 
 ### Fixed
-- First launch now opens Settings on the Permissions tab when setup is
-  incomplete. Since permissions moved into Settings, a first run with the
-  microphone or Accessibility ungranted showed nothing at all — only a menu bar
-  icon that appeared to do nothing. Only a failing hotkey triggered the prompt,
-  so the two permissions a new user is most likely to be missing were silent.
-- The permissions footer now says what to do, not just what's missing.
+- A dead key used to fail silently: cleanup quietly stopped happening and the
+  raw transcript went through, so it looked like the AI had simply got worse.
 
 ## [1.1.0] — 2026-08-07
 
@@ -44,6 +40,24 @@ All notable changes are recorded here. Versions follow [semantic versioning](htt
 - Download is ~1.3 MB, down from 57 MB.
 - Requires macOS 26 or later. Below that the app installed but silently did
   nothing.
+
+## [1.0.1] — 2026-08-07
+
+### Changed
+- The Cleanup tab is now **AI Cleanup**, and usage moved into it — what you've
+  spent belongs beside the switch that causes the spending, not in a separate
+  tab.
+- Spend is shown as three cards: last 7 days, last 30 days, and all time, with
+  the cost as the headline figure and tokens as supporting detail.
+- The settings window is taller and resizable so nothing is clipped.
+
+### Fixed
+- First launch now opens Settings on the Permissions tab when setup is
+  incomplete. Since permissions moved into Settings, a first run with the
+  microphone or Accessibility ungranted showed nothing at all — only a menu bar
+  icon that appeared to do nothing. Only a failing hotkey triggered the prompt,
+  so the two permissions a new user is most likely to be missing were silent.
+- The permissions footer now says what to do, not just what's missing.
 
 ## [1.0.0] — 2026-08-07
 

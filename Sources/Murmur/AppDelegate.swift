@@ -90,6 +90,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         result.latency * 1000, result.inputTokens, result.outputTokens
                     ))
                     return result.text
+                } catch let CleanupError.invalidKey(provider, _) {
+                    // Worth interrupting for: unlike every other failure, this
+                    // one never resolves on its own.
+                    Log.echo("cleanup: \(provider.rawValue) rejected the API key")
+                    await MainActor.run {
+                        self.controller.reportProblem("\(provider.displayName) rejected your API key")
+                    }
+                    return corrected
                 } catch {
                     // Fail toward raw — never lose the user's words to an API problem.
                     Log.echo("cleanup unavailable: \(error.localizedDescription) — using raw")

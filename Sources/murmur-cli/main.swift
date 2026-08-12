@@ -255,6 +255,50 @@ case "seed-usage":
     }
     print("seeded 45 days of usage")
 
+case "keystatus-selftest":
+    // The key-rejection path only runs when someone's key dies, so it would
+    // otherwise ship untested.
+    var keyFailures = 0
+    func expect(_ ok: Bool, _ what: String) {
+        if !ok { keyFailures += 1; print("FAIL  \(what)") }
+    }
+
+    for provider in CleanupProvider.allCases {
+        KeyStatusStore.reset(provider)
+        expect(KeyStatusStore.status(for: provider) == .untested, "\(provider.rawValue) starts untested")
+
+        KeyStatusStore.markRejected(provider, reason: "invalid x-api-key")
+        expect(KeyStatusStore.status(for: provider).isRejected, "\(provider.rawValue) records rejection")
+        if case .rejected(_, let reason) = KeyStatusStore.status(for: provider) {
+            expect(reason == "invalid x-api-key", "\(provider.rawValue) keeps the reason")
+        }
+
+        // A rejection must not bleed across providers — one dead key shouldn't
+        // make the other look dead.
+        for other in CleanupProvider.allCases where other != provider {
+            expect(!KeyStatusStore.status(for: other).isRejected, "\(other.rawValue) unaffected")
+        }
+
+        KeyStatusStore.markValid(provider)
+        expect(!KeyStatusStore.status(for: provider).isRejected, "\(provider.rawValue) clears on success")
+        KeyStatusStore.reset(provider)
+        expect(KeyStatusStore.status(for: provider) == .untested, "\(provider.rawValue) resets")
+    }
+
+    // Both providers nest the message under "error", but not identically.
+    let anthropicBody = Data(#"{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}"#.utf8)
+    let openAIBody = Data(#"{"error":{"message":"Incorrect API key provided: sk-abc","type":"invalid_request_error"}}"#.utf8)
+    expect(CleanupService.reason(from: anthropicBody) == "invalid x-api-key", "parses Anthropic reason")
+    expect(CleanupService.reason(from: openAIBody)?.hasPrefix("Incorrect API key") == true, "parses OpenAI reason")
+    expect(CleanupService.reason(from: Data("not json".utf8)) == nil, "survives a non-JSON body")
+    expect(CleanupService.reason(from: Data()) == nil, "survives an empty body")
+    // Remote text goes on screen, so it must not be able to run long.
+    let huge = Data(("{\"error\":{\"message\":\"" + String(repeating: "x", count: 5000) + "\"}}").utf8)
+    expect((CleanupService.reason(from: huge)?.count ?? 0) <= 140, "truncates a hostile reason")
+
+    print(keyFailures == 0 ? "all key status cases pass" : "\(keyFailures) key status cases FAILED")
+    if keyFailures > 0 { exit(1) }
+
 case "reentrancy-selftest":
     // Reproduces the crash: an observer that reads the store while a write is
     // in flight. Before the fix this trapped inside dispatch.

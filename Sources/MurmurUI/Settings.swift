@@ -22,6 +22,9 @@ public final class SettingsModel: ObservableObject {
     // Cleanup — the key is written on commit, never from a view update.
     @Published var apiKey = ""
     @Published var hasStoredKey = false
+    @Published var keyStatus: KeyStatus = .untested
+    @Published var testingKey = false
+    @Published var keyTestMessage = ""
     @Published var cleanupEnabled: Bool { didSet { CleanupPreference.isEnabled = cleanupEnabled } }
     /// Changing provider moves the model to that provider's cheapest, which is
     /// also the sensible default — nobody wants to be dropped onto the priciest
@@ -32,6 +35,8 @@ public final class SettingsModel: ObservableObject {
             cleanupModel = cleanupProvider.defaultModel
             apiKey = ""
             hasStoredKey = Keychain.isPresent(cleanupProvider.keychainAccount)
+            keyStatus = KeyStatusStore.status(for: cleanupProvider)
+            keyTestMessage = ""
         }
     }
     @Published var cleanupModel: CleanupModelSpec { didSet { CleanupPreference.model = cleanupModel } }
@@ -101,9 +106,11 @@ public final class SettingsModel: ObservableObject {
     var onHotkeyChange: ((Hotkey) -> Void)?
 
     private var usageObserver: NSObjectProtocol?
+    private var keyStatusObserver: NSObjectProtocol?
 
     deinit {
         if let usageObserver { NotificationCenter.default.removeObserver(usageObserver) }
+        if let keyStatusObserver { NotificationCenter.default.removeObserver(keyStatusObserver) }
     }
 
     public init(store: CorrectionStore, usage: UsageStore?, hotkey: Hotkey) {
@@ -118,6 +125,7 @@ public final class SettingsModel: ObservableObject {
         // prompt, and drawing a settings pane is no place for one. We only track
         // *that* a key exists; the value itself is read once, at request time.
         self.hasStoredKey = Keychain.isPresent(CleanupPreference.model.provider.keychainAccount)
+        self.keyStatus = KeyStatusStore.status(for: CleanupPreference.model.provider)
         refresh()
 
         // Without this an already-open window shows stale zeros forever — it
@@ -126,6 +134,13 @@ public final class SettingsModel: ObservableObject {
             forName: .murmurUsageRecorded, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.refresh() }
+        }
+
+        // A key can die mid-dictation while this window is open.
+        keyStatusObserver = NotificationCenter.default.addObserver(
+            forName: .murmurKeyStatusChanged, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshKeyStatus() }
         }
     }
 
@@ -155,14 +170,40 @@ public final class SettingsModel: ObservableObject {
         Keychain.set(trimmed, for: cleanupProvider.keychainAccount)
         KeyStore.invalidate(cleanupProvider)
         hasStoredKey = true
+        keyStatus = .untested
+        keyTestMessage = ""
         // Drop it from memory — the field shows "saved" from here on.
         apiKey = ""
+        // Check it straight away rather than waiting for the next dictation to
+        // fail — a mistyped key should be caught while it's still on screen.
+        testKey()
+    }
+
+    func testKey() {
+        guard !testingKey else { return }
+        testingKey = true
+        keyTestMessage = "Checking…"
+        let provider = cleanupProvider
+        Task {
+            let result = await CleanupService.testKey(for: provider)
+            await MainActor.run {
+                testingKey = false
+                keyTestMessage = result.message
+                keyStatus = KeyStatusStore.status(for: provider)
+            }
+        }
+    }
+
+    func refreshKeyStatus() {
+        keyStatus = KeyStatusStore.status(for: cleanupProvider)
     }
 
     func clearKey() {
         Keychain.set(nil, for: cleanupProvider.keychainAccount)
         KeyStore.invalidate(cleanupProvider)
         hasStoredKey = false
+        keyStatus = .untested
+        keyTestMessage = ""
         apiKey = ""
     }
 
@@ -324,9 +365,20 @@ private struct CleanupTab: View {
                     LabeledContent("API key") {
                         if model.hasStoredKey && !editingKey {
                             HStack(spacing: 8) {
-                                Label("Saved", systemImage: "checkmark.circle.fill")
-                                    .foregroundStyle(.green)
+                                switch model.keyStatus {
+                                case .valid:
+                                    Label("Working", systemImage: "checkmark.circle.fill")
+                                        .foregroundStyle(.green)
+                                case .rejected:
+                                    Label("Rejected", systemImage: "exclamationmark.triangle.fill")
+                                        .foregroundStyle(.red)
+                                case .untested:
+                                    Label("Saved", systemImage: "checkmark.circle.fill")
+                                        .foregroundStyle(.secondary)
+                                }
                                 Spacer()
+                                Button(model.testingKey ? "Checking…" : "Test") { model.testKey() }
+                                    .disabled(model.testingKey)
                                 Button("Replace") { editingKey = true; keyFocused = true }
                                 Button("Remove") { model.clearKey() }
                             }
@@ -344,8 +396,23 @@ private struct CleanupTab: View {
                         }
                     }
                 } footer: {
-                    if model.hasStoredKey {
-                        Text("Held in your Keychain. Keys are kept per provider, so switching back doesn't lose one.")
+                    if case .rejected(let when, let reason) = model.keyStatus {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("\(model.cleanupProvider.displayName) rejected this key on \(when.formatted(date: .abbreviated, time: .shortened)).")
+                                .foregroundStyle(.red)
+                            Text(reason).foregroundStyle(.secondary)
+                            HStack(spacing: 4) {
+                                Text("Dictation still works — it just skips cleanup.")
+                                Link("Get a new key", destination: model.cleanupProvider.keyURL)
+                            }
+                            .foregroundStyle(.secondary)
+                        }
+                        .font(.caption)
+                        .fixedSize(horizontal: false, vertical: true)
+                    } else if model.hasStoredKey {
+                        Text(model.keyTestMessage.isEmpty
+                             ? "Held in your Keychain. Keys are kept per provider, so switching back doesn't lose one."
+                             : model.keyTestMessage)
                             .font(.caption).foregroundStyle(.secondary)
                     } else {
                         HStack(spacing: 4) {
@@ -678,6 +745,9 @@ public final class SettingsWindowController {
         window.styleMask = [.titled, .closable, .resizable]
         window.isReleasedWhenClosed = false
         window.isRestorable = false
+        // The menu bar is reachable from a full-screen app, so the window it
+        // opens has to follow you there rather than surfacing in another Space.
+        window.collectionBehavior.insert(.moveToActiveSpace)
         window.center()
         self.window = window
 
