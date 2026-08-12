@@ -27,6 +27,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !duplicates.isEmpty {
             Log.echo("another Murmur is already running — terminating \(duplicates.count) older copy/copies")
             duplicates.forEach { $0.terminate() }
+            // terminate() is a polite request an app with an open window can sit
+            // on, which leaves two menu bar icons and two settings windows that
+            // look like two versions. Insist if it hasn't gone.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                for copy in duplicates where !copy.isTerminated {
+                    Log.echo("duplicate ignored terminate() — forcing")
+                    copy.forceTerminate()
+                }
+            }
         }
 
         // Without this, ⌘V is dead in every text field in the app.
@@ -127,7 +136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let granted = Permission.allCases
             .filter { permissions.state(of: $0) == .granted }
             .map(\.rawValue)
-        Log.echo("launched · granted: \(granted.isEmpty ? "none" : granted.joined(separator: ", "))")
+        Log.echo("launched · \(AppVersion.current) · granted: \(granted.isEmpty ? "none" : granted.joined(separator: ", "))")
         // Deliberately does NOT read the key here. A Keychain read can raise a
         // modal prompt, and a modal prompt during applicationDidFinishLaunching
         // blocks the main thread — the app hangs before it finishes launching.

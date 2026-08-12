@@ -62,11 +62,7 @@ public final class SettingsModel: ObservableObject {
         didSet { UpdatePreference.automatic = autoCheckUpdates }
     }
 
-    var appVersion: String {
-        let short = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
-        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
-        return "\(short) (\(build))"
-    }
+    var appVersion: String { AppVersion.current }
 
     func checkForUpdates() {
         guard !checkingForUpdate else { return }
