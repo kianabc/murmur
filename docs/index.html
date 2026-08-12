@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Murmur — talk instead of typing, on macOS</title>
+<meta name="description" content="Hold a key, say what you mean, let go. The text appears wherever your cursor is. Free and open source for macOS.">
+<meta property="og:title" content="Murmur — talk instead of typing">
+<meta property="og:description" content="Hold a key, say what you mean, let go. The text appears wherever your cursor is.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎙️</text></svg>">
+<style>
+  /* Self-contained on purpose: no CDN, no fonts, no analytics. The page
+     shouldn't phone anywhere the app wouldn't. */
+  :root {
+    --bg: #fbfbfa; --surface: #fff; --line: #e6e4e0;
+    --ink: #171614; --muted: #6b6862; --accent: #c05621; --accent-ink: #fff;
+    --code-bg: #f3f2ef;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #131211; --surface: #1b1a18; --line: #2c2a27;
+      --ink: #f2f0ec; --muted: #a09b93; --accent: #e88a4e; --accent-ink: #1a1917;
+      --code-bg: #232120;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 0 24px; }
+  a { color: var(--accent); }
+
+  header { padding: 80px 0 56px; text-align: center; }
+  .mark { font-size: 52px; line-height: 1; }
+  h1 { font-size: clamp(38px, 7vw, 56px); margin: 14px 0 10px; letter-spacing: -.025em; }
+  .tagline { font-size: clamp(18px, 3vw, 21px); color: var(--muted); margin: 0 auto; max-width: 30ch; }
+
+  .cta { margin: 36px 0 12px; }
+  .btn {
+    display: inline-block; background: var(--accent); color: var(--accent-ink);
+    padding: 14px 30px; border-radius: 10px; text-decoration: none;
+    font-weight: 600; font-size: 17px;
+  }
+  .btn:hover { filter: brightness(1.07); }
+  .req { color: var(--muted); font-size: 14px; margin-top: 12px; }
+
+  /* The demo is the pitch: it shows the thing nothing else does. */
+  .demo {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 14px; padding: 22px 24px; margin: 8px 0 0; text-align: left;
+  }
+  .demo .label {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .09em;
+    color: var(--muted); margin-bottom: 6px;
+  }
+  .said { color: var(--muted); }
+  .said s { opacity: .55; }
+  .arrow { color: var(--muted); margin: 12px 0 10px; font-size: 18px; }
+  .typed { font-weight: 600; font-size: 17px; }
+
+  section { padding: 44px 0; border-top: 1px solid var(--line); }
+  h2 { font-size: 22px; margin: 0 0 20px; letter-spacing: -.012em; }
+  h3 { font-size: 16px; margin: 0 0 5px; }
+  .grid { display: grid; gap: 26px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+  .grid p { margin: 0; color: var(--muted); font-size: 15px; }
+
+  ol.steps { padding-left: 20px; margin: 0; }
+  ol.steps li { margin-bottom: 10px; }
+  ol.steps li::marker { color: var(--muted); }
+
+  kbd {
+    background: var(--code-bg); border: 1px solid var(--line); border-bottom-width: 2px;
+    border-radius: 5px; padding: 1px 7px; font: 500 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .note { color: var(--muted); font-size: 14px; }
+  footer { padding: 40px 0 64px; text-align: center; color: var(--muted); font-size: 14px; border-top: 1px solid var(--line); }
+  footer a { margin: 0 9px; }
+</style>
+</head>
+<body>
+
+<header class="wrap">
+  <div class="mark">🎙️</div>
+  <h1>Murmur</h1>
+  <p class="tagline">Talk instead of typing. Anywhere on your Mac.</p>
+
+  <div class="cta">
+    <a class="btn" id="download" href="https://github.com/kianabc/murmur/releases/latest">
+      Download for macOS
+    </a>
+    <p class="req" id="req">Free and open source · Requires macOS 26 or later on Apple Silicon</p>
+  </div>
+
+  <div class="demo">
+    <div class="label">What you say</div>
+    <p class="said">“I'm trying to, um, <s>write</s> — sorry, <em>ride</em> my motorcycle to work.”</p>
+    <div class="arrow">↓</div>
+    <div class="label">What gets typed</div>
+    <p class="typed">I'm trying to ride my motorcycle to work.</p>
+  </div>
+</header>
+
+<main class="wrap">
+
+<section>
+  <h2>How it works</h2>
+  <ol class="steps">
+    <li>Hold <kbd>right ⌘</kbd> anywhere — an email, a chat, a code editor.</li>
+    <li>Say what you mean. A small panel shows the words as it hears them.</li>
+    <li>Let go. The finished text appears at your cursor.</li>
+  </ol>
+  <p class="note" style="margin-top:16px">
+    Double-tap the key to keep recording for longer thoughts. <kbd>Esc</kbd> cancels.
+  </p>
+</section>
+
+<section>
+  <h2>What makes it different</h2>
+  <div class="grid">
+    <div>
+      <h3>It understands what you meant</h3>
+      <p>Removes “um”, resolves “3 — sorry, 4”, and works out <em>ride</em> from <em>write</em> using the rest of the sentence.</p>
+    </div>
+    <div>
+      <h3>It learns your words</h3>
+      <p>Names and jargon trip up every dictation app. Teach it once and it's fixed everywhere.</p>
+    </div>
+    <div>
+      <h3>It won't invent things</h3>
+      <p>Every edit is checked against what you actually said. Anything that looks made up is thrown away.</p>
+    </div>
+    <div>
+      <h3>It shows what it costs</h3>
+      <p>Bring your own API key from Anthropic or OpenAI. Spending is tracked to the tenth of a cent.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Your voice stays on your Mac</h2>
+  <p>Transcription runs entirely on-device. Audio is never uploaded — not to me, not to anyone.</p>
+  <p class="note">
+    The optional cleanup step sends the <em>transcript</em> to the AI provider you choose, and only
+    then. No accounts, no telemetry, nothing collected. Turn it off and Murmur still works.
+  </p>
+</section>
+
+<section>
+  <h2>Installing</h2>
+  <ol class="steps">
+    <li>Download the <code>.dmg</code> above.</li>
+    <li>Double-click it and drag Murmur to your Applications folder.</li>
+    <li>Open it. Murmur lives in your menu bar, not the Dock.</li>
+    <li>Grant the permissions macOS asks for — a one-time step it walks you through.</li>
+  </ol>
+  <p class="note" style="margin-top:16px">
+    Signed and notarised by Apple, so it opens with a single click. No security warnings to work around.
+  </p>
+</section>
+
+</main>
+
+<footer class="wrap">
+  <a href="https://github.com/kianabc/murmur">Source</a>·
+  <a href="https://github.com/kianabc/murmur/blob/main/CHANGELOG.md">Changelog</a>·
+  <a href="https://github.com/kianabc/murmur/issues">Report a problem</a>
+  <p style="margin-top:14px">MIT licensed.</p>
+</footer>
+
+<script>
+  // Progressive enhancement only. Without JS the button still points at the
+  // releases page, which always works.
+  fetch('https://api.github.com/repos/kianabc/murmur/releases/latest')
+    .then(r => r.ok ? r.json() : Promise.reject())
+    .then(release => {
+      const dmg = (release.assets || []).find(a => a.name.endsWith('.dmg'));
+      if (dmg) document.getElementById('download').href = dmg.browser_download_url;
+      const size = dmg ? ` · ${(dmg.size / 1048576).toFixed(1)} MB` : '';
+      document.getElementById('req').textContent =
+        `${release.tag_name}${size} · Free and open source · Requires macOS 26 or later on Apple Silicon`;
+    })
+    .catch(() => {});
+</script>
+
+</body>
+</html>
