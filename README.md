@@ -110,6 +110,11 @@ most capable.
 The cheapest option runs well under **$1 a month** at around 2,000 words a day.
 The same tab shows exactly what you've spent, so there are no surprises.
 
+Your key is checked as soon as you paste it, and there's a **Test** button beside
+it if you want to check again later. If your provider ever rejects it — revoked,
+mistyped, or out of credit — the tab marks it **Rejected** and a warning appears
+in the menu bar, rather than cleanup quietly stopping.
+
 Without a key, Murmur still works — it just types what you said, unedited.
 
 ## Your privacy
@@ -137,6 +142,10 @@ Settings → Privacy & Security** and click **Open Anyway**.
 granted, or **Settings → General → Text output** is set to clipboard-only.
 
 **It's mishearing a particular word.** Teach it under **Settings → Corrections**.
+
+**The AI cleanup stopped happening.** Open **Settings → AI Cleanup**. If your key
+shows **Rejected**, your provider has refused it and you'll need a new one.
+Dictation keeps working meanwhile — it just types what you said, unedited.
 
 Still stuck? [Open an issue](https://github.com/kianabc/murmur/issues) and
 include what you see in the log at
