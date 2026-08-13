@@ -124,7 +124,12 @@ public final class DictationController: ObservableObject {
     }
 
     private func begin() {
-        guard case .idle = state else { return }
+        guard case .idle = state else {
+            // Silence here is how a wedged state machine looked like a dead
+            // hotkey: every press did nothing and said nothing.
+            Log.echo("hotkey ignored — still \(state)")
+            return
+        }
 
         // A focused password field kills our event tap and would make us look
         // broken. Say so instead.
@@ -156,6 +161,25 @@ public final class DictationController: ObservableObject {
     private func finish() {
         guard case .recording = state else { return }
         state = .processing
+
+        // Nothing downstream is allowed to strand the state machine. Even with
+        // every await bounded, one unbounded path is enough to leave the app
+        // permanently deaf with no way back short of relaunching it.
+        //
+        // 45s sits well clear of the worst legitimate case (2s analyzer start +
+        // 3s drain + 20s cleanup request), so this only fires on a real hang and
+        // never races a slow-but-working dictation.
+        let generation = processingGeneration &+ 1
+        processingGeneration = generation
+        DispatchQueue.main.asyncAfter(deadline: .now() + 45) { [weak self] in
+            guard let self, self.processingGeneration == generation,
+                  case .processing = self.state else { return }
+            Log.echo("finish never returned — releasing the state machine")
+            self.engine.cancelCapture()
+            self.state = .failed("Dictation timed out — try again")
+            self.partialText = ""
+            self.resetSoon()
+        }
 
         Task { @MainActor in
             do {
@@ -192,6 +216,9 @@ public final class DictationController: ObservableObject {
         state = .failed(message)
         resetSoon()
     }
+
+    /// Guards the watchdog against firing on a later, healthy capture.
+    private var processingGeneration: UInt64 = 0
 
     private func cancel() {
         engine.cancelCapture()

@@ -241,8 +241,16 @@ public final class SpeechAnalyzerEngine: DictationEngine {
         inputContinuation = nil
 
         // The analyzer may still be starting — finalising before it started
-        // leaves the results stream open forever.
-        await startTask?.value
+        // leaves the results stream open forever. Bounded, because when the mic
+        // has gone silent this never completes, and an unbounded await here hung
+        // finalize forever and wedged the whole app in "Transcribing…".
+        if let startTask {
+            let started = await Self.withTimeout(seconds: 2) { await startTask.value }
+            if !started {
+                Log.echo("engine: analyzer never finished starting — abandoning it")
+                startTask.cancel()
+            }
+        }
         startTask = nil
 
         let analyzer = self.analyzer

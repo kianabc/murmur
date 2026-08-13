@@ -1,5 +1,7 @@
 import Foundation
 import MurmurASR
+import AVFoundation
+import MurmurAudio
 import MurmurCleanup
 import MurmurCore
 import MurmurStore
@@ -255,6 +257,51 @@ case "seed-usage":
     }
     print("seeded 45 days of usage")
 
+case "audio-selftest":
+    // The engine used to be warmed once and assumed to run forever. It doesn't:
+    // macOS kills the tap on any hardware change, and the app went quietly deaf.
+    // This exercises the recovery path that now runs on those notifications.
+    let cap = AudioCapture()
+    let fmt = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16000, channels: 1, interleaved: false)!
+    cap.setTargetFormat(fmt)
+
+    let counter = BufferCounter()
+    cap.onBuffer = { _ in counter.bump() }
+
+    func waitForBuffers(_ label: String) -> Bool {
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline {
+            if counter.count > 0 { return true }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        }
+        print("FAIL  no buffers \(label)")
+        return false
+    }
+
+    var audioFailures = 0
+    do {
+        try cap.warmUp()
+        cap.beginCapture()
+        if !waitForBuffers("before restart") { audioFailures += 1 }
+        let before = counter.count
+
+        // What macOS does to us when headphones go in, a display is plugged in,
+        // or the machine wakes up.
+        counter.reset()
+        cap.restart(reason: "selftest")
+
+        if !cap.isRunning { print("FAIL  engine not running after restart"); audioFailures += 1 }
+        if !waitForBuffers("after restart") { audioFailures += 1 }
+        print("  \(before) buffers before, \(counter.count) after")
+        cap.endCapture()
+        cap.shutDown()
+    } catch {
+        print("FAIL  \(error.localizedDescription)")
+        audioFailures += 1
+    }
+    print(audioFailures == 0 ? "audio recovers from an interruption" : "\(audioFailures) audio cases FAILED")
+    if audioFailures > 0 { exit(1) }
+
 case "keystatus-selftest":
     // The key-rejection path only runs when someone's key dies, so it would
     // otherwise ship untested.
@@ -370,4 +417,13 @@ case "list":
 
 default:
     fail("unknown command: \(command)")
+}
+
+/// Buffer arrivals come off the audio thread; the test reads from the main one.
+final class BufferCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+    var count: Int { lock.lock(); defer { lock.unlock() }; return value }
+    func bump() { lock.lock(); value += 1; lock.unlock() }
+    func reset() { lock.lock(); value = 0; lock.unlock() }
 }

@@ -3,6 +3,24 @@
 All notable changes are recorded here. Versions follow [semantic versioning](https://semver.org):
 `MAJOR.MINOR.PATCH` — patch for fixes, minor for features, major for breaking changes.
 
+## [1.2.1] — 2026-08-13
+
+### Fixed
+- **Murmur went deaf after the Mac slept or the audio hardware changed.** The
+  microphone engine was started once and assumed to run forever, but macOS stops
+  it and invalidates the tap whenever the hardware changes underneath it —
+  headphones in or out, a display plugged in, a Bluetooth device connecting,
+  waking from sleep. Nothing failed loudly; buffers just stopped arriving and
+  every dictation came back empty. The engine now rebuilds itself when that
+  happens.
+- **A dictation could hang forever and lock out every one after it.** Waiting for
+  the recogniser to start was the one step without a time limit, so when the
+  microphone had gone quiet it never returned. The app stayed on "Transcribing…"
+  and silently ignored the key from then on, which looked exactly like a crash.
+  That wait is now bounded, and a watchdog releases the app if anything else ever
+  strands it.
+- The log now says when a key press was ignored, and why.
+
 ## [1.2.0] — 2026-08-12
 
 ### Added

@@ -1,3 +1,4 @@
+import AppKit
 import AVFoundation
 import Foundation
 import MurmurCore
@@ -24,7 +25,8 @@ public enum AudioError: LocalizedError {
 ///
 ///  - **The engine stays warm.** Cold-starting AVAudioEngine costs 100–200ms,
 ///    a large slice of the latency budget. It's started once and left running;
-///    `beginCapture()` only flips a flag.
+///    `beginCapture()` only flips a flag. "Warm" is not "permanent", though —
+///    see `configurationChanged`.
 ///  - **Pre-roll.** A rolling ~300ms is always buffered, so the first syllable
 ///    isn't clipped when you press the key mid-word.
 public final class AudioCapture {
@@ -44,6 +46,9 @@ public final class AudioCapture {
     private var converter: AVAudioConverter?
     private var targetFormat: AVAudioFormat?
 
+    private var configObserver: NSObjectProtocol?
+    private var wakeObserver: NSObjectProtocol?
+
     private let lock = NSLock()
     private var hasLoggedFirstBuffer = false
     private var hasLoggedConverterFailure = false
@@ -54,6 +59,11 @@ public final class AudioCapture {
     private var preRollFrames: AVAudioFrameCount = 0
 
     public init() {}
+
+    deinit {
+        if let configObserver { NotificationCenter.default.removeObserver(configObserver) }
+        if let wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver) }
+    }
 
     public var isRunning: Bool { engine.isRunning }
 
@@ -115,6 +125,68 @@ public final class AudioCapture {
         }
         let targetDesc = targetFormat.map { "\(Int($0.sampleRate))Hz/\($0.channelCount)ch" } ?? "passthrough"
         Log.echo("audio: engine warm · \(Int(inputFormat.sampleRate))Hz/\(inputFormat.channelCount)ch → \(targetDesc)")
+
+        observeInterruptions()
+    }
+
+    // MARK: - Surviving the day
+
+    /// The engine does not in fact run for the life of the app. macOS stops it
+    /// and invalidates every tap whenever the audio hardware changes underneath
+    /// it — headphones in or out, a display with a mic plugged in, a Bluetooth
+    /// device connecting, waking from sleep. Nothing is thrown and `isRunning`
+    /// can still read true; buffers simply stop arriving, which is
+    /// indistinguishable from a broken microphone.
+    private func observeInterruptions() {
+        guard configObserver == nil else { return }
+
+        configObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
+        ) { [weak self] _ in
+            self?.restart(reason: "hardware configuration changed")
+        }
+
+        // Waking doesn't always post a configuration change, and a tap that
+        // slept through a suspend can come back mute.
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.restart(reason: "woke from sleep")
+        }
+    }
+
+    /// Tears the engine down and warms it again from scratch. Cheaper than the
+    /// alternative, which is a menu bar icon that looks fine and hears nothing.
+    public func restart(reason: String) {
+        Log.echo("audio: \(reason) — rebuilding engine")
+
+        lock.lock()
+        let wasCapturing = capturing
+        hasLoggedFirstBuffer = false
+        converter = nil
+        preRoll.removeAll()
+        preRollFrames = 0
+        lock.unlock()
+
+        engine.inputNode.removeTap(onBus: 0)
+        engine.stop()
+
+        do {
+            try warmUp()
+            lock.lock()
+            capturing = wasCapturing
+            lock.unlock()
+        } catch {
+            // Retry once on the next tick: on wake the hardware is sometimes not
+            // ready for a moment, and giving up here means staying deaf.
+            Log.echo("audio: rebuild failed (\(error.localizedDescription)) — retrying in 1s")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                guard let self, !self.engine.isRunning else { return }
+                do { try self.warmUp() } catch {
+                    Log.echo("audio: rebuild failed again — \(error.localizedDescription)")
+                }
+            }
+        }
     }
 
     public func shutDown() {

@@ -33,7 +33,7 @@ let package = Package(
         // Dev tool — transcribe a file through the real engine, no mic needed.
         .executableTarget(
             name: "murmur-cli",
-            dependencies: ["MurmurASR", "MurmurStore", "MurmurCleanup"],
+            dependencies: ["MurmurASR", "MurmurAudio", "MurmurStore", "MurmurCleanup"],
             swiftSettings: mode
         ),
 
