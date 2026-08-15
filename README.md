@@ -85,6 +85,11 @@ That's it. You're done.
 Prefer a different key? **Settings → General → Dictation key**. Right ⌘ is the
 default because nothing else on macOS uses it.
 
+Because ⌘ and ⌥ are also shortcut keys, Murmur waits a moment before it starts —
+long enough to tell "⌥" from "⌥⌦". Your other shortcuts keep working. The wait
+costs you nothing: Murmur is already buffering, so speak the instant you press.
+Adjust or switch it off under **Settings → General → Hold before recording**.
+
 ## Making it smarter (optional)
 
 ### Teach it words it gets wrong
