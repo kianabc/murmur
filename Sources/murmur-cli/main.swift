@@ -257,6 +257,79 @@ case "seed-usage":
     }
     print("seeded 45 days of usage")
 
+case "hotkey-selftest":
+    // ⌥ on its own means dictate; ⌥⌦ means delete a word. Getting that wrong
+    // popped the recorder open on ordinary shortcuts, so every branch is pinned.
+    var hotkeyFailures = 0
+    let delay = HoldDelayPreference.defaultForModifiers
+
+    func gesture(_ name: String, _ want: [String], _ steps: (HotkeyMonitor, () -> Void) -> Void) {
+        let monitor = HotkeyMonitor(hotkey: .rightOption)
+        var got: [String] = []
+        monitor.onEvent = { got.append("\($0)") }
+        // Timers are real, so the run loop has to actually turn.
+        let settle = { RunLoop.main.run(until: Date().addingTimeInterval(delay + 0.1)) }
+        steps(monitor, settle)
+        if got != want {
+            hotkeyFailures += 1
+            print("FAIL  \(name): got \(got), want \(want)")
+        } else {
+            print("  ok  \(name) → \(got.isEmpty ? "nothing" : got.joined(separator: ", "))")
+        }
+    }
+
+    gesture("⌘⌥ (chord) is ignored", []) { m, settle in
+        m.simulateKeyDown(chorded: true)
+        settle()
+        m.simulateKeyUp()
+    }
+
+    gesture("⌥⌦ (key during arming) is ignored", []) { m, settle in
+        m.simulateKeyDown()
+        m.simulateOtherKey()
+        settle()
+        m.simulateKeyUp()
+    }
+
+    gesture("a short tap does nothing", []) { m, _ in
+        m.simulateKeyDown()
+        m.simulateKeyUp()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+    }
+
+    gesture("a bare hold records", ["begin", "finish"]) { m, settle in
+        m.simulateKeyDown()
+        settle()
+        m.simulateKeyUp()
+    }
+
+    gesture("double-tap latches, next tap ends it", ["begin", "latch", "finish"]) { m, _ in
+        m.simulateKeyDown(); m.simulateKeyUp()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        m.simulateKeyDown()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        m.simulateKeyUp()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        m.simulateKeyDown()
+    }
+
+    gesture("Esc cancels a recording", ["begin", "cancel"]) { m, settle in
+        m.simulateKeyDown()
+        settle()
+        m.simulateEsc()
+    }
+
+    gesture("a chord after a tap doesn't latch", []) { m, _ in
+        m.simulateKeyDown(); m.simulateKeyUp()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        m.simulateKeyDown(chorded: true)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        m.simulateKeyUp()
+    }
+
+    print(hotkeyFailures == 0 ? "all hotkey gestures pass" : "\(hotkeyFailures) hotkey gestures FAILED")
+    if hotkeyFailures > 0 { exit(1) }
+
 case "audio-selftest":
     // The engine used to be warmed once and assumed to run forever. It doesn't:
     // macOS kills the tap on any hardware change, and the app went quietly deaf.

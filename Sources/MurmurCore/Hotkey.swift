@@ -35,6 +35,11 @@ public enum Hotkey: String, CaseIterable, Codable, Sendable {
         self == .f5 || self == .f6
     }
 
+    /// Modifier triggers are ambiguous by nature: ⌥ on its own means dictate,
+    /// but ⌥ followed by ⌦ means delete a word. Only these need an arming delay
+    /// to tell the two apart — a function key has nothing to disambiguate.
+    public var isModifier: Bool { keyCode == nil }
+
     var keyCode: CGKeyCode? {
         switch self {
         case .f5: 96
@@ -65,6 +70,35 @@ public enum Hotkey: String, CaseIterable, Codable, Sendable {
 }
 
 /// Persisted hotkey choice.
+/// How long the dictation key must be held before recording starts.
+///
+/// This exists to tell a bare modifier from a chord: press ⌥ and we wait, and if
+/// anything else arrives in the meantime it was ⌥⌦ or ⌘⌥ and we stay out of the
+/// way. It costs nothing in captured words — `AudioCapture` keeps a rolling
+/// pre-roll, so the audio from before the delay is still there.
+public enum HoldDelayPreference {
+    private static let key = "com.torimi.murmur.holdDelay"
+
+    /// Offered in the UI. 0 is only sensible for a non-modifier key.
+    public static let choices: [TimeInterval] = [0, 0.15, 0.2, 0.3]
+
+    /// Long enough to catch a fast ⌥⌦, short enough not to feel sluggish.
+    public static let defaultForModifiers: TimeInterval = 0.2
+
+    public static func current(for hotkey: Hotkey) -> TimeInterval {
+        guard hotkey.isModifier else { return 0 }
+        guard let stored = UserDefaults.standard.object(forKey: key) as? Double else {
+            return defaultForModifiers
+        }
+        return stored
+    }
+
+    public static var stored: TimeInterval {
+        get { UserDefaults.standard.object(forKey: key) as? Double ?? defaultForModifiers }
+        set { UserDefaults.standard.set(newValue, forKey: key) }
+    }
+}
+
 public enum HotkeyPreference {
     private static let key = "com.torimi.murmur.hotkey"
 

@@ -27,8 +27,9 @@ public enum AudioError: LocalizedError {
 ///    a large slice of the latency budget. It's started once and left running;
 ///    `beginCapture()` only flips a flag. "Warm" is not "permanent", though —
 ///    see `configurationChanged`.
-///  - **Pre-roll.** A rolling ~300ms is always buffered, so the first syllable
-///    isn't clipped when you press the key mid-word.
+///  - **Pre-roll.** A rolling ~600ms is always buffered, so the first syllable
+///    isn't clipped when you press the key mid-word — and so the hotkey's arming
+///    delay can discard nothing.
 public final class AudioCapture {
     /// Called on the audio thread with converted buffers. Keep it cheap.
     public var onBuffer: ((AVAudioPCMBuffer) -> Void)?
@@ -37,7 +38,10 @@ public final class AudioCapture {
     /// the UI reacts to the actual voice rather than faking activity.
     public var onLevel: ((Float) -> Void)?
 
-    private static let preRollSeconds: Double = 0.3
+    /// Must exceed the longest arming delay the hotkey offers (300ms), or the
+    /// delay would start costing words instead of being free. The extra 300ms on
+    /// top covers speaking a beat before pressing.
+    private static let preRollSeconds: Double = 0.6
 
     /// Off by default — see `warmUp()`.
     public var useVoiceProcessing = false

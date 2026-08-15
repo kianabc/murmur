@@ -3,6 +3,21 @@
 All notable changes are recorded here. Versions follow [semantic versioning](https://semver.org):
 `MAJOR.MINOR.PATCH` — patch for fixes, minor for features, major for breaking changes.
 
+## [1.3.0] — 2026-08-13
+
+### Added
+- **A hold delay before recording starts**, under General → Hotkey. Default
+  200 ms, and it costs you no words — Murmur keeps a rolling buffer of what you
+  said just before, so the audio from during the delay is still there.
+
+### Fixed
+- **Shortcuts using the dictation key no longer start a dictation.** With Right ⌥
+  as your key, ⌘⌥ and ⌥⌦ both popped the recorder open. A press arriving with
+  another modifier already held is now never a dictation, and a press has to
+  survive the hold delay untouched by any other key before it counts.
+- A single quick tap no longer starts a recording so short nothing could be said
+  in it. Two quick taps still latch.
+
 ## [1.2.1] — 2026-08-13
 
 ### Fixed

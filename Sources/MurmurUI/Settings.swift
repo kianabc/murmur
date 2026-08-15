@@ -17,6 +17,7 @@ public enum SettingsTab: Hashable, Sendable {
 public final class SettingsModel: ObservableObject {
     // General
     @Published var hotkey: Hotkey { didSet { onHotkeyChange?(hotkey) } }
+    @Published var holdDelay: TimeInterval { didSet { HoldDelayPreference.stored = holdDelay } }
     @Published var insertion: InsertionMode { didSet { InsertionPreference.current = insertion } }
 
     // Cleanup — the key is written on commit, never from a view update.
@@ -114,6 +115,7 @@ public final class SettingsModel: ObservableObject {
         self.usage = usage
         self.hotkey = hotkey
         self.insertion = InsertionPreference.current
+        self.holdDelay = HoldDelayPreference.stored
         self.cleanupEnabled = CleanupPreference.isEnabled
         self.cleanupModel = CleanupPreference.model
         self.cleanupProvider = CleanupPreference.model.provider
@@ -301,10 +303,27 @@ private struct GeneralTab: View {
                 Picker("Dictation key", selection: $model.hotkey) {
                     ForEach(Hotkey.allCases, id: \.self) { Text($0.displayName).tag($0) }
                 }
+
+                if model.hotkey.isModifier {
+                    Picker("Hold before recording", selection: $model.holdDelay) {
+                        ForEach(HoldDelayPreference.choices, id: \.self) { choice in
+                            Text(choice == 0 ? "No delay" : "\(Int(choice * 1000)) ms").tag(choice)
+                        }
+                    }
+                }
             } header: {
                 Text("Hotkey")
             } footer: {
-                Text(hint).font(.caption).foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(hint)
+                    if model.hotkey.isModifier {
+                        Text(model.holdDelay == 0
+                             ? "With no delay, any shortcut using this key — ⌘⌥, ⌥⌦ — starts a dictation too."
+                             : "\(model.hotkey.displayName) on its own starts dictating. Held as part of a shortcut, like ⌘\(model.hotkey.displayName.dropFirst(6)) or \(model.hotkey.displayName.dropFirst(6))⌦, it doesn't. The delay costs no words — audio from before it is kept.")
+                    }
+                }
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             }
 
             Section {
