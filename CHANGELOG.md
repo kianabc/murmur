@@ -3,6 +3,14 @@
 All notable changes are recorded here. Versions follow [semantic versioning](https://semver.org):
 `MAJOR.MINOR.PATCH` — patch for fixes, minor for features, major for breaking changes.
 
+## [1.4.0] — 2026-08-13
+
+### Added
+- **Short phrases skip the AI**, under AI Cleanup. "Change it to 15" has nothing
+  in it for a model to fix, so it goes straight through with no wait and no cost,
+  while longer dictations are still cleaned up. On by default at six words or
+  fewer; the threshold is yours to set, and the whole thing switches off.
+
 ## [1.3.0] — 2026-08-13
 
 ### Added

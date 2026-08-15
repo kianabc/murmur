@@ -257,6 +257,53 @@ case "seed-usage":
     }
     print("seeded 45 days of usage")
 
+case "shortphrase-selftest":
+    var shortFailures = 0
+    func want(_ text: String, _ expected: Int, _ short: Bool, max: Int = 6) {
+        let n = ShortPhrasePolicy.wordCount(text)
+        let isShort = ShortPhrasePolicy.isShort(text, maxWords: max)
+        if n != expected || isShort != short {
+            shortFailures += 1
+            print("FAIL  “\(text)” → \(n) words, short=\(isShort); want \(expected), short=\(short)")
+        }
+    }
+
+    want("change it to 15", 4, true)
+    want("Change it to 15.", 4, true)
+    // Punctuation floating on its own is not a word.
+    want("yes , really ?", 2, true)
+    want("", 0, true)
+    want("   ", 0, true)
+    // Exactly at the threshold still counts as short; one past it does not.
+    want("one two three four five six", 6, true)
+    want("one two three four five six seven", 7, false)
+    want("I'm trying to ride my motorcycle to work today", 9, false)
+    // Hyphens and contractions are single words, not two.
+    want("it's a well-known problem", 4, true)
+    // A long phrase stays long however the threshold moves.
+    want("one two three four five six seven", 7, true, max: 10)
+
+    // The preference gate is off when the feature is off, whatever the length.
+    let remembered = ShortPhrasePreference.isEnabled
+    ShortPhrasePreference.isEnabled = false
+    if ShortPhrasePreference.shouldSkip("change it to 15") {
+        shortFailures += 1
+        print("FAIL  skipped while the feature is switched off")
+    }
+    ShortPhrasePreference.isEnabled = true
+    if !ShortPhrasePreference.shouldSkip("change it to 15") {
+        shortFailures += 1
+        print("FAIL  did not skip a short phrase while switched on")
+    }
+    if ShortPhrasePreference.shouldSkip("I'm trying to ride my motorcycle to work today") {
+        shortFailures += 1
+        print("FAIL  skipped a full sentence")
+    }
+    ShortPhrasePreference.isEnabled = remembered
+
+    print(shortFailures == 0 ? "all short phrase cases pass" : "\(shortFailures) short phrase cases FAILED")
+    if shortFailures > 0 { exit(1) }
+
 case "hotkey-selftest":
     // ⌥ on its own means dictate; ⌥⌦ means delete a word. Getting that wrong
     // popped the recorder open on ordinary shortcuts, so every branch is pinned.

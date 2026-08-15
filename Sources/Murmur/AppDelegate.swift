@@ -67,6 +67,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     Log.echo("cleanup: skipped — no API key readable")
                     return corrected
                 }
+                // Checked against the corrected text, not the raw: the ledger has
+                // already had its say, and what matters is the length of what
+                // would actually be sent.
+                guard !ShortPhrasePreference.shouldSkip(corrected) else {
+                    Log.echo("cleanup: skipped — \(ShortPhrasePolicy.wordCount(corrected)) words, short phrase")
+                    return corrected
+                }
 
                 do {
                     let service = CleanupService(model: CleanupPreference.model)

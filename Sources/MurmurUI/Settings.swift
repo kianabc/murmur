@@ -27,6 +27,8 @@ public final class SettingsModel: ObservableObject {
     @Published var testingKey = false
     @Published var keyTestMessage = ""
     @Published var cleanupEnabled: Bool { didSet { CleanupPreference.isEnabled = cleanupEnabled } }
+    @Published var skipShortPhrases: Bool { didSet { ShortPhrasePreference.isEnabled = skipShortPhrases } }
+    @Published var skipShortMaxWords: Int { didSet { ShortPhrasePreference.maxWords = skipShortMaxWords } }
     /// Changing provider moves the model to that provider's cheapest, which is
     /// also the sensible default — nobody wants to be dropped onto the priciest
     /// option by switching vendors.
@@ -117,6 +119,8 @@ public final class SettingsModel: ObservableObject {
         self.insertion = InsertionPreference.current
         self.holdDelay = HoldDelayPreference.stored
         self.cleanupEnabled = CleanupPreference.isEnabled
+        self.skipShortPhrases = ShortPhrasePreference.isEnabled
+        self.skipShortMaxWords = ShortPhrasePreference.maxWords
         self.cleanupModel = CleanupPreference.model
         self.cleanupProvider = CleanupPreference.model.provider
         // Never read the stored key back. A Keychain read can raise a modal
@@ -359,6 +363,25 @@ private struct CleanupTab: View {
             } footer: {
                 Text("Removes “um”, resolves “3, sorry 4” → “4”, fixes homophones from context, and adds punctuation. Runs after your saved corrections.")
                     .font(.caption).foregroundStyle(.secondary)
+            }
+
+            if model.cleanupEnabled {
+                Section {
+                    Toggle("Skip it for short phrases", isOn: $model.skipShortPhrases)
+                    if model.skipShortPhrases {
+                        Picker("Short means", selection: $model.skipShortMaxWords) {
+                            ForEach(ShortPhrasePreference.choices, id: \.self) { n in
+                                Text("\(n) words or fewer").tag(n)
+                            }
+                        }
+                    }
+                } footer: {
+                    Text(model.skipShortPhrases
+                         ? "“Change it to 15” has nothing in it for a model to fix, so it goes straight through — no wait, no cost. Longer dictations are still cleaned up."
+                         : "Every dictation is sent, however short.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             if model.cleanupEnabled {
