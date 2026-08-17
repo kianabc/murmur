@@ -1,3 +1,4 @@
+import ApplicationServices
 import Foundation
 import MurmurASR
 import AVFoundation
@@ -256,6 +257,31 @@ case "seed-usage":
         }
     }
     print("seeded 45 days of usage")
+
+case "focus-selftest":
+    // A wrong "no" here makes the app look broken while the user stares at a
+    // perfectly good text field, so the bias toward proceeding is pinned down.
+    var focusFailures = 0
+    func check(_ what: String, _ ok: Bool) {
+        if !ok { focusFailures += 1; print("FAIL  \(what)") }
+    }
+
+    check("unknown proceeds", EditableFocus.unknown.allowsDictation)
+    check("editable proceeds", EditableFocus.editable.allowsDictation)
+    check("a button is refused", !EditableFocus.notEditable(role: "AXButton").allowsDictation)
+    check("only notEditable is a refusal", EditableFocus.notEditable(role: "AXImage").isRefusal
+          && !EditableFocus.unknown.isRefusal && !EditableFocus.editable.isRefusal)
+
+    // Against the live system. Whatever is focused right now, the one thing that
+    // must never happen is a crash or a hang in the AX plumbing.
+    let live = FocusProbe.current()
+    print("  live probe → \(live)")
+    print("  focused    → \(FocusProbe.describeCurrent())")
+    check("a probe without accessibility says unknown",
+          AXIsProcessTrusted() || live == .unknown)
+
+    print(focusFailures == 0 ? "all focus gate cases pass" : "\(focusFailures) focus gate cases FAILED")
+    if focusFailures > 0 { exit(1) }
 
 case "shortphrase-selftest":
     var shortFailures = 0

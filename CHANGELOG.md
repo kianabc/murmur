@@ -3,6 +3,25 @@
 All notable changes are recorded here. Versions follow [semantic versioning](https://semver.org):
 `MAJOR.MINOR.PATCH` — patch for fixes, minor for features, major for breaking changes.
 
+## [1.5.0] — 2026-08-13
+
+### Added
+- **Don't start when there's nowhere to type**, under General → Text output. If
+  the key is held with no text field focused, the dictation would end in nothing,
+  so it doesn't begin. It only refuses when it's certain — apps describe
+  themselves inconsistently, and a wrong refusal is worse than a pointless
+  recording, so silence from an app means go ahead.
+
+### Fixed
+- **The popup was invisible in some apps**, fullscreen ones especially, even
+  though dictation worked and the text arrived. When Murmur can find the window
+  but not the caret, it was placing the popup just outside the window — which for
+  a fullscreen window is off the edge of the screen, leaving it clamped into a
+  corner nowhere near where you're looking. It now sits at the bottom of the
+  window, where macOS puts its own dictation indicator.
+- The log records which method found your cursor, so "I never see the popup" is
+  answerable.
+
 ## [1.4.0] — 2026-08-13
 
 ### Added

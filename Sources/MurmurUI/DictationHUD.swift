@@ -86,6 +86,17 @@ public final class DictationHUD {
         var x = rect.minX
         var y = rect.minY - Self.height - Self.gap
 
+        // Knowing only the window is not knowing where the caret is, and placing
+        // the HUD just outside a window-sized rect goes badly: for a fullscreen
+        // window "just below" is off the bottom of the screen, "just above" is
+        // off the top, and the clamp below drops it in a corner — present, but
+        // nowhere near where anyone is looking. Sit inside the window instead,
+        // bottom-centre, which is where macOS puts its own dictation indicator.
+        if anchor.precision == .window {
+            x = rect.midX - Self.width / 2
+            y = rect.minY + 48
+        }
+
         // Above the caret instead, if there's no room below.
         let screen = NSScreen.screens.first { $0.frame.intersects(rect) } ?? NSScreen.main
         if let visible = screen?.visibleFrame {

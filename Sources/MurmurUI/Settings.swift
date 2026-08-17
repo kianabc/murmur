@@ -19,6 +19,7 @@ public final class SettingsModel: ObservableObject {
     @Published var hotkey: Hotkey { didSet { onHotkeyChange?(hotkey) } }
     @Published var holdDelay: TimeInterval { didSet { HoldDelayPreference.stored = holdDelay } }
     @Published var insertion: InsertionMode { didSet { InsertionPreference.current = insertion } }
+    @Published var requireTextField: Bool { didSet { FocusGatePreference.isEnabled = requireTextField } }
 
     // Cleanup — the key is written on commit, never from a view update.
     @Published var apiKey = ""
@@ -117,6 +118,7 @@ public final class SettingsModel: ObservableObject {
         self.usage = usage
         self.hotkey = hotkey
         self.insertion = InsertionPreference.current
+        self.requireTextField = FocusGatePreference.isEnabled
         self.holdDelay = HoldDelayPreference.stored
         self.cleanupEnabled = CleanupPreference.isEnabled
         self.skipShortPhrases = ShortPhrasePreference.isEnabled
@@ -335,10 +337,21 @@ private struct GeneralTab: View {
                     ForEach(InsertionMode.allCases, id: \.self) { Text($0.displayName).tag($0) }
                 }
                 .pickerStyle(.radioGroup)
+
+                if model.insertion == .typeIntoApp {
+                    Toggle("Only start when a text field is focused", isOn: $model.requireTextField)
+                }
             } header: {
                 Text("Text output")
             } footer: {
-                Text(model.insertion.detail).font(.caption).foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(model.insertion.detail)
+                    if model.insertion == .typeIntoApp && model.requireTextField {
+                        Text("Holding the key with nothing to type into does nothing at all, so Murmur won't start listening. It only refuses when it's certain — if an app doesn't say, it goes ahead.")
+                    }
+                }
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             }
         }
         .formStyle(.grouped)

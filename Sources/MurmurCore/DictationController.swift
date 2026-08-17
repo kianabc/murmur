@@ -139,12 +139,36 @@ public final class DictationController: ObservableObject {
             return
         }
 
+        // Nothing to paste into means the whole dictation ends in nothing, so
+        // don't start one. Only checked when we'd be typing into the app — in
+        // clipboard mode there is always somewhere for the text to go.
+        if FocusGatePreference.isEnabled, InsertionPreference.current == .typeIntoApp {
+            let focus = FocusProbe.current()
+            // The deny-list can only be tuned against what real apps actually
+            // report, and they disagree wildly. Recorded on anything other than
+            // a plain text field so there's evidence to tune from.
+            if focus != .editable {
+                Log.echo("focus: \(FocusProbe.describeCurrent())")
+            }
+            if case .notEditable(let role) = focus {
+                Log.echo("declined — nothing focused to type into (\(role))")
+                state = .failed("Click into a text field first")
+                resetSoon()
+                return
+            }
+        }
+
         do {
             partialText = ""
             level = 0
             // Resolve once per capture: chasing the caret mid-sentence would make
             // the HUD jitter as the text grows.
-            anchor = CaretLocator.locate()
+            let located = CaretLocator.locate()
+            // Which rung of the ladder we landed on decides where the HUD ends
+            // up, so it belongs in the log — "I never see the popup" is
+            // otherwise unanswerable.
+            Log.echo("anchor: \(located.precision.rawValue)")
+            anchor = located
             try engine.beginCapture()
             state = .recording(latched: false)
         } catch {
