@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import CoreGraphics
 
 public enum InsertError: LocalizedError {
@@ -28,6 +29,47 @@ public final class PasteboardSink: TextSink {
     /// press ⌘V" instead of pretending it typed.
     public private(set) var lastInsertWasClipboardOnly = false
 
+    /// Called on the main thread when a paste demonstrably didn't land and the
+    /// text has been left on the clipboard instead.
+    public var onPasteFallback: ((String) -> Void)?
+
+    /// A cheap fingerprint of the focused text field: how much text it holds and
+    /// where the caret sits. Both move when a paste lands, and comparing two
+    /// numbers avoids copying a whole document out of the app twice.
+    private struct FieldState: Equatable {
+        let characters: Int
+        let caret: Int
+    }
+
+    private static let axTimeout: Float = 0.15
+
+    private static func fieldState() -> FieldState? {
+        guard AXIsProcessTrusted() else { return nil }
+        let system = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(system, axTimeout)
+
+        var focusedRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            system, kAXFocusedUIElementAttribute as CFString, &focusedRef
+        ) == .success, let focused = focusedRef as! AXUIElement? else { return nil }
+        AXUIElementSetMessagingTimeout(focused, axTimeout)
+
+        var countRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            focused, kAXNumberOfCharactersAttribute as CFString, &countRef
+        ) == .success, let characters = countRef as? Int else { return nil }
+
+        var caret = -1
+        var rangeRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(
+            focused, kAXSelectedTextRangeAttribute as CFString, &rangeRef
+        ) == .success, let value = rangeRef as! AXValue? {
+            var range = CFRange()
+            if AXValueGetValue(value, .cfRange, &range) { caret = range.location }
+        }
+        return FieldState(characters: characters, caret: caret)
+    }
+
     public func insert(_ text: String) throws {
         guard !Permissions.isSecureInputActive else { throw InsertError.secureInputActive }
 
@@ -54,12 +96,28 @@ public final class PasteboardSink: TextSink {
         pasteboard.setString(text, forType: .string)
         let ourChangeCount = pasteboard.changeCount
 
+        // Sampled before the paste so it can be compared with after. Nil means
+        // the app doesn't answer, which is common and is *not* evidence.
+        let before = Self.fieldState()
+
         synthesizePaste()
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + restoreDelay) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + restoreDelay) { [weak self] in
             // If the user copied something during our window, their copy wins —
             // clobbering it would be a genuinely infuriating bug.
             guard pasteboard.changeCount == ourChangeCount else { return }
+
+            // Only an unambiguous failure keeps the clipboard: readable before
+            // and after, and nothing moved. Anywhere accessibility stays quiet we
+            // restore as usual, because silently replacing what someone had
+            // copied — on a guess — is its own kind of data loss.
+            if let before, let after = Self.fieldState(), before == after {
+                Log.echo("insert: paste did not land (\(before.characters) chars, caret \(before.caret) unchanged) — left on clipboard")
+                self?.lastInsertWasClipboardOnly = true
+                self?.onPasteFallback?(text)
+                return
+            }
+
             Self.restore(saved, to: pasteboard)
         }
     }

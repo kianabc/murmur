@@ -26,7 +26,18 @@ public enum EditableFocus: Equatable, Sendable {
     public var isRefusal: Bool { if case .notEditable = self { return true }; return false }
 }
 
+public struct FocusReading: Sendable {
+    public let focus: EditableFocus
+    /// What the element said about itself, for tuning the lists against reality.
+    public let description: String
+}
+
 public enum FocusProbe {
+    /// Accessibility calls are synchronous IPC into another app, and the default
+    /// timeout is six seconds. On the path that opens the recorder that is not a
+    /// budget, it's a hang — so cap it hard. A probe that times out reports
+    /// `unknown`, which proceeds, which is the right answer anyway.
+    private static let messagingTimeout: Float = 0.15
     /// Roles that take text. Chromium maps `contenteditable` onto AXTextArea, so
     /// this covers most web and Electron editors too.
     private static let editableRoles: Set<String> = [
@@ -47,51 +58,49 @@ public enum FocusProbe {
         kAXWindowRole, kAXSheetRole, kAXDisclosureTriangleRole,
     ]
 
-    public static func current() -> EditableFocus {
-        guard AXIsProcessTrusted() else { return .unknown }
+    public static func current() -> EditableFocus { probe().focus }
+
+    /// Verdict and diagnostics from a single pass. They used to be two calls,
+    /// which meant paying for every accessibility round trip twice on the path
+    /// that opens the recorder.
+    public static func probe() -> FocusReading {
+        guard AXIsProcessTrusted() else {
+            return FocusReading(focus: .unknown, description: "accessibility not granted")
+        }
 
         let system = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(system, messagingTimeout)
+
         var focusedRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(
             system, kAXFocusedUIElementAttribute as CFString, &focusedRef
         ) == .success, let focused = focusedRef as! AXUIElement? else {
             // Plenty of healthy apps report nothing here. Not evidence of absence.
-            return .unknown
+            return FocusReading(focus: .unknown, description: "no focused element")
         }
+        AXUIElementSetMessagingTimeout(focused, messagingTimeout)
 
         let role = string(focused, kAXRoleAttribute) ?? ""
-
-        if editableRoles.contains(role) { return .editable }
-
-        // Role names are not exhaustive — a custom text engine can call itself
-        // anything. Supporting a selected text range is the behaviour that
-        // actually matters, so trust that over the label.
-        if hasAttribute(focused, kAXSelectedTextRangeAttribute) { return .editable }
-        if isSettable(focused, kAXValueAttribute) { return .editable }
-
-        if refusingRoles.contains(role) { return .notEditable(role: role) }
-
-        return .unknown
-    }
-
-    /// What the focused element actually says about itself. Diagnostics only —
-    /// the deny-list is only tunable against real apps, and guessing at role
-    /// names from documentation is how it ends up not firing where it matters.
-    public static func describeCurrent() -> String {
-        guard AXIsProcessTrusted() else { return "accessibility not granted" }
-        let system = AXUIElementCreateSystemWide()
-        var focusedRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(
-            system, kAXFocusedUIElementAttribute as CFString, &focusedRef
-        ) == .success, let focused = focusedRef as! AXUIElement? else {
-            return "no focused element"
-        }
-        let role = string(focused, kAXRoleAttribute) ?? "(no role)"
         let subrole = string(focused, kAXSubroleAttribute) ?? "-"
         let range = hasAttribute(focused, kAXSelectedTextRangeAttribute)
         let settable = isSettable(focused, kAXValueAttribute)
         let app = NSWorkspace.shared.frontmostApplication?.localizedName ?? "?"
-        return "app=\(app) role=\(role) subrole=\(subrole) selectedTextRange=\(range) valueSettable=\(settable)"
+        let described = "app=\(app) role=\(role) subrole=\(subrole) selectedTextRange=\(range) valueSettable=\(settable)"
+
+        let verdict: EditableFocus
+        if editableRoles.contains(role) {
+            verdict = .editable
+        } else if range || settable {
+            // Role names are not exhaustive — a custom text engine can call
+            // itself anything. Supporting a selected text range is the behaviour
+            // that actually matters, so trust that over the label.
+            verdict = .editable
+        } else if refusingRoles.contains(role) {
+            verdict = .notEditable(role: role)
+        } else {
+            verdict = .unknown
+        }
+        return FocusReading(focus: verdict, description: described)
     }
 
     // MARK: - AX plumbing

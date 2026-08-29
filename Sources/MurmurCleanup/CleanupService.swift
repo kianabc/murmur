@@ -85,6 +85,20 @@ struct CleanupPrompt: Sendable {
     - Format numbers, dates, times and units conventionally.
       "three thirty" -> "3:30"   "twenty twenty six" -> "2026"
     - Add punctuation and capitalisation appropriate to the target app.
+    - Give the text the shape the speaker is clearly dictating. Speech has no
+      line breaks, so this is yours to infer, using only what was said:
+      * Spoken enumeration becomes a list, one item per line. "first X second Y
+        third Z" and "we need A, B, and C" as an itemised rundown both become
+        lines beginning "1. ", "2. ", "3. " (numbered when the speaker counted)
+        or "- " (when they did not).
+      * A dictated email or message gets its parts on their own lines: greeting,
+        body, sign-off. "hi sarah ... thanks kian" becomes "Hi Sarah,", a blank
+        line, the body, a blank line, "Thanks,", "Kian".
+      * A distinct change of subject starts a new paragraph, separated by a
+        blank line. Do not break a single continuous thought into paragraphs.
+      Use a blank line between blocks and a single newline within a list.
+      When the speaker dictated one continuous remark, leave it as one block —
+      structure that was not spoken is invention like any other.
 
     Never:
     - Add information the speaker did not say.

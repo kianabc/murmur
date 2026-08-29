@@ -143,14 +143,12 @@ public final class DictationController: ObservableObject {
         // don't start one. Only checked when we'd be typing into the app — in
         // clipboard mode there is always somewhere for the text to go.
         if FocusGatePreference.isEnabled, InsertionPreference.current == .typeIntoApp {
-            let focus = FocusProbe.current()
-            // The deny-list can only be tuned against what real apps actually
+            let reading = FocusProbe.probe()
+            // The lists can only be tuned against what real apps actually
             // report, and they disagree wildly. Recorded on anything other than
             // a plain text field so there's evidence to tune from.
-            if focus != .editable {
-                Log.echo("focus: \(FocusProbe.describeCurrent())")
-            }
-            if case .notEditable(let role) = focus {
+            if reading.focus != .editable { Log.echo("focus: \(reading.description)") }
+            if case .notEditable(let role) = reading.focus {
                 Log.echo("declined — nothing focused to type into (\(role))")
                 state = .failed("Click into a text field first")
                 resetSoon()
@@ -161,19 +159,31 @@ public final class DictationController: ObservableObject {
         do {
             partialText = ""
             level = 0
-            // Resolve once per capture: chasing the caret mid-sentence would make
-            // the HUD jitter as the text grows.
-            let located = CaretLocator.locate()
-            // Which rung of the ladder we landed on decides where the HUD ends
-            // up, so it belongs in the log — "I never see the popup" is
-            // otherwise unanswerable.
-            Log.echo("anchor: \(located.precision.rawValue)")
-            anchor = located
+            anchor = nil
+            captureGeneration &+= 1
             try engine.beginCapture()
             state = .recording(latched: false)
         } catch {
             state = .failed(error.localizedDescription)
             resetSoon()
+            return
+        }
+
+        // Locating the caret is several synchronous cross-process accessibility
+        // calls, and doing them before publishing `.recording` meant the HUD
+        // could not draw until they finished — so it appeared only when the key
+        // was released. Let the run loop paint first, then find the caret and
+        // move the HUD to it.
+        let generation = captureGeneration
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.captureGeneration == generation,
+                  case .recording = self.state else { return }
+            let located = CaretLocator.locate()
+            // Which rung of the ladder we landed on decides where the HUD ends
+            // up, so it belongs in the log — "I never see the popup" is
+            // otherwise unanswerable.
+            Log.echo("anchor: \(located.precision.rawValue)")
+            self.anchor = located
         }
     }
 
@@ -243,6 +253,9 @@ public final class DictationController: ObservableObject {
 
     /// Guards the watchdog against firing on a later, healthy capture.
     private var processingGeneration: UInt64 = 0
+    /// Distinguishes this capture from the next, so late async work can tell
+    /// whether it is still relevant.
+    private var captureGeneration: UInt64 = 0
 
     private func cancel() {
         engine.cancelCapture()

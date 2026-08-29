@@ -26,6 +26,17 @@ public final class DictationHUD {
             .sink { [weak self] state in self?.apply(state, anchor: controller.anchor) }
             .store(in: &cancellables)
 
+        // The anchor arrives a beat after the HUD does, so the panel opens where
+        // it can and moves to the caret when accessibility answers.
+        controller.$anchor
+            .compactMap { $0 }
+            .receive(on: RunLoop.main)
+            .sink { [weak self] anchor in
+                guard let self, let panel = self.panel, panel.isVisible else { return }
+                self.position(panel, at: anchor)
+            }
+            .store(in: &cancellables)
+
         controller.$partialText
             .receive(on: RunLoop.main)
             .sink { [weak self] text in self?.model.text = text }

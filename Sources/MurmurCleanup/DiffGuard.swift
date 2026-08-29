@@ -25,8 +25,18 @@ public enum DiffGuard {
         guard !cleanedTrimmed.isEmpty else { return .reject("empty output") }
 
         // A model that opens with "Here is the cleaned text:" ignored the schema.
+        // Only when the speaker didn't open that way themselves: people begin
+        // sentences with "Okay" and "Sure" constantly, and rejecting those threw
+        // away cleanups that had already been paid for.
         let preamble = #"^(here('| i)s|sure|okay|certainly|cleaned|output)\b"#
-        if cleanedTrimmed.range(of: preamble, options: [.regularExpression, .caseInsensitive]) != nil {
+        let rawTrimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanedOpensThatWay = cleanedTrimmed.range(
+            of: preamble, options: [.regularExpression, .caseInsensitive]
+        ) != nil
+        let rawOpensThatWay = rawTrimmed.range(
+            of: preamble, options: [.regularExpression, .caseInsensitive]
+        ) != nil
+        if cleanedOpensThatWay && !rawOpensThatWay {
             return .reject("preamble in output")
         }
 

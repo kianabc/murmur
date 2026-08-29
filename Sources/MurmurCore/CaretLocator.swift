@@ -44,8 +44,13 @@ public enum CaretLocator {
 
     // MARK: - Accessibility ladder
 
+    /// Same reasoning as FocusProbe: six seconds of default timeout has no place
+    /// anywhere near the dictation path.
+    private static let messagingTimeout: Float = 0.15
+
     private static func accessibilityAnchor() -> Anchor? {
         let system = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(system, messagingTimeout)
 
         var focusedRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(
@@ -53,6 +58,7 @@ public enum CaretLocator {
         ) == .success, let focused = focusedRef as! AXUIElement? else {
             return windowAnchor()
         }
+        AXUIElementSetMessagingTimeout(focused, messagingTimeout)
 
         // 1. The caret itself: bounds of the (empty) selected range.
         if let rect = caretRect(of: focused) {
@@ -116,6 +122,7 @@ public enum CaretLocator {
     private static func windowAnchor() -> Anchor? {
         guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
         let axApp = AXUIElementCreateApplication(app.processIdentifier)
+        AXUIElementSetMessagingTimeout(axApp, messagingTimeout)
 
         var windowRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(

@@ -52,6 +52,13 @@ public final class AudioCapture {
 
     private var configObserver: NSObjectProtocol?
     private var wakeObserver: NSObjectProtocol?
+    private var healthTimer: Timer?
+    private var rebuildAttempt = 0
+    /// Our own record of a *successful* start. `engine.isRunning` can report true
+    /// after `start()` has thrown, and trusting it turned one failed rebuild into
+    /// permanent silence: every retry saw "running" and returned without a word.
+    private var isWarm = false
+    private var lastBufferAt = Date.distantPast
 
     private let lock = NSLock()
     private var hasLoggedFirstBuffer = false
@@ -65,11 +72,12 @@ public final class AudioCapture {
     public init() {}
 
     deinit {
+        healthTimer?.invalidate()
         if let configObserver { NotificationCenter.default.removeObserver(configObserver) }
         if let wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver) }
     }
 
-    public var isRunning: Bool { engine.isRunning }
+    public var isRunning: Bool { isWarm }
 
     /// The format buffers will be delivered in. Set before `warmUp()`.
     /// Pass `nil` to deliver the hardware's own format untouched.
@@ -84,7 +92,7 @@ public final class AudioCapture {
 
     /// Start the engine and leave it running for the life of the app.
     public func warmUp() throws {
-        guard !engine.isRunning else { return }
+        guard !isWarm else { return }
 
         let input = engine.inputNode
 
@@ -124,13 +132,55 @@ public final class AudioCapture {
         do {
             try engine.start()
         } catch {
+            // Put it back to a known-stopped state. A half-started engine reports
+            // itself as running, and every later attempt would then no-op.
+            input.removeTap(onBus: 0)
+            engine.stop()
             Log.echo("audio: engine failed to start — \(error)")
             throw AudioError.engineUnavailable
         }
+        isWarm = true
+        noteBuffer()
         let targetDesc = targetFormat.map { "\(Int($0.sampleRate))Hz/\($0.channelCount)ch" } ?? "passthrough"
         Log.echo("audio: engine warm · \(Int(inputFormat.sampleRate))Hz/\(inputFormat.channelCount)ch → \(targetDesc)")
 
         observeInterruptions()
+        startHealthWatch()
+    }
+
+    /// Buffers arrive every ~21ms whenever the engine is healthy, so a long gap
+    /// is the one symptom every silent-death mode has in common — a failed
+    /// rebuild, a device that vanished, an interruption nobody told us about.
+    /// Rather than enumerate the causes, watch for the symptom.
+    private func startHealthWatch() {
+        guard healthTimer == nil else { return }
+        healthTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+            guard let self, self.isWarm else { return }
+            let quiet = Date().timeIntervalSince(self.lastBuffer)
+            guard quiet > 8 else { return }
+            Log.echo(String(format: "audio: no buffers for %.0fs", quiet))
+            self.restart(reason: "input went quiet")
+        }
+    }
+
+    private var lastBuffer: Date {
+        lock.lock(); defer { lock.unlock() }
+        return lastBufferAt
+    }
+
+    private func noteBuffer() {
+        lock.lock()
+        lastBufferAt = Date()
+        lock.unlock()
+    }
+
+    public func shutDown() {
+        healthTimer?.invalidate()
+        healthTimer = nil
+        guard isWarm else { return }
+        engine.inputNode.removeTap(onBus: 0)
+        engine.stop()
+        isWarm = false
     }
 
     // MARK: - Surviving the day
@@ -162,7 +212,12 @@ public final class AudioCapture {
     /// Tears the engine down and warms it again from scratch. Cheaper than the
     /// alternative, which is a menu bar icon that looks fine and hears nothing.
     public func restart(reason: String) {
-        Log.echo("audio: \(reason) — rebuilding engine")
+        rebuildAttempt = 0
+        rebuild(reason: reason)
+    }
+
+    private func rebuild(reason: String) {
+        Log.echo("audio: \(reason) — rebuilding engine (attempt \(rebuildAttempt + 1))")
 
         lock.lock()
         let wasCapturing = capturing
@@ -170,33 +225,39 @@ public final class AudioCapture {
         converter = nil
         preRoll.removeAll()
         preRollFrames = 0
+        // Not a real buffer, but it stops the health watch piling more rebuilds
+        // on top of this one while it's in progress.
+        lastBufferAt = Date()
         lock.unlock()
 
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
+        isWarm = false
 
         do {
             try warmUp()
+            rebuildAttempt = 0
             lock.lock()
             capturing = wasCapturing
             lock.unlock()
         } catch {
-            // Retry once on the next tick: on wake the hardware is sometimes not
-            // ready for a moment, and giving up here means staying deaf.
-            Log.echo("audio: rebuild failed (\(error.localizedDescription)) — retrying in 1s")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
-                guard let self, !self.engine.isRunning else { return }
-                do { try self.warmUp() } catch {
-                    Log.echo("audio: rebuild failed again — \(error.localizedDescription)")
-                }
+            // Hardware in flux — a device arriving or leaving — reports formats
+            // that can't be started for a moment. One retry was not enough: it is
+            // the difference between recovering and being deaf until relaunch.
+            rebuildAttempt += 1
+            guard rebuildAttempt <= 8 else {
+                Log.echo("audio: gave up after \(rebuildAttempt) attempts — no microphone until relaunch")
+                return
+            }
+            let delay = min(pow(2, Double(rebuildAttempt - 1)) * 0.5, 15)
+            Log.echo(String(
+                format: "audio: rebuild failed (%@) — retrying in %.1fs",
+                error.localizedDescription, delay
+            ))
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.rebuild(reason: "retry")
             }
         }
-    }
-
-    public func shutDown() {
-        guard engine.isRunning else { return }
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
     }
 
     // MARK: - Capture window
@@ -230,6 +291,7 @@ public final class AudioCapture {
     // MARK: - Tap
 
     private func handle(_ buffer: AVAudioPCMBuffer) {
+        noteBuffer()
         if !hasLoggedFirstBuffer {
             hasLoggedFirstBuffer = true
             Log.echo("audio: first buffer · \(Int(buffer.format.sampleRate)) Hz, \(buffer.format.channelCount) ch")

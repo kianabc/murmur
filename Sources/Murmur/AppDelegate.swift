@@ -17,6 +17,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hud: DictationHUD?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // First thing, so a crash during setup is still recorded.
+        Diagnostics.begin(version: AppVersion.current)
+        Diagnostics.importSystemReports()
+
         // Two menu bar icons means two copies are running — easy to end up with
         // when relaunching during development, and confusing because only one of
         // them owns the hotkey.
@@ -42,7 +46,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         EditMenu.install()
 
         let engine = SpeechAnalyzerEngine()
-        controller = DictationController(engine: engine, sink: PasteboardSink())
+        let sink = PasteboardSink()
+        controller = DictationController(engine: engine, sink: sink)
+        // A paste that goes nowhere used to lose the dictation outright: the
+        // clipboard was restored 150ms later, taking the transcript with it.
+        sink.onPasteFallback = { [weak self] text in
+            Log.echo("insert: kept \(text.count) chars on the clipboard")
+            self?.controller.reportProblem("Couldn't type that — press ⌘V to paste it")
+        }
 
         // Learned corrections run on every transcript before it's inserted.
         // Deterministic and free — and it works regardless of whether decoder
@@ -260,6 +271,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        Diagnostics.endCleanly()
         controller?.stopListening()
     }
 }

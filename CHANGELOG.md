@@ -3,6 +3,37 @@
 All notable changes are recorded here. Versions follow [semantic versioning](https://semver.org):
 `MAJOR.MINOR.PATCH` — patch for fixes, minor for features, major for breaking changes.
 
+## [1.6.0] — 2026-08-14
+
+### Fixed
+- **The "crashes" were not crashes.** When the audio hardware changed, the engine
+  sometimes failed to restart — and the single retry never ran, because a failed
+  start leaves the engine claiming to be running and every retry believed it.
+  Murmur stayed alive and completely deaf until it was quit and reopened. It now
+  retries with backoff, and watches for the symptom every silent failure shares:
+  no microphone data arriving. If the input goes quiet, it rebuilds itself.
+- **The listening popup sometimes appeared only when you let go of the key.**
+  Finding your cursor means asking the other app a series of questions, and those
+  were being asked before the popup was allowed to draw. The popup now opens
+  first and moves to your cursor a moment later, and those questions can no
+  longer take more than a moment each.
+- **A dictation that failed to paste is no longer lost.** The clipboard used to
+  be restored a fraction of a second after pasting, taking the transcript with it
+  if the paste hadn't landed. When Murmur can see that nothing was inserted, it
+  leaves the text on the clipboard and tells you to press ⌘V. It only does this
+  on proof — when it can't tell, your clipboard is left exactly as it was.
+- Cleanups that began with the speaker's own "Okay" or "Sure" were being thrown
+  away as if the model had added a preamble. You were paying for those.
+
+### Added
+- **Cleanup now formats structure it can hear.** Spoken lists become numbered or
+  bulleted lines, dictated emails get their greeting, body and sign-off on
+  separate lines, and a change of subject starts a new paragraph. Structure that
+  wasn't spoken is still treated as invention and rejected.
+- Every run records how the last one ended. An unclean exit is called out by name
+  at the next launch, fatal signals are captured with a backtrace, and any crash
+  report macOS wrote is folded into Murmur's own log.
+
 ## [1.5.0] — 2026-08-13
 
 ### Added
