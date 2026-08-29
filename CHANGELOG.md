@@ -3,7 +3,7 @@
 All notable changes are recorded here. Versions follow [semantic versioning](https://semver.org):
 `MAJOR.MINOR.PATCH` — patch for fixes, minor for features, major for breaking changes.
 
-## [1.7.0] — 2026-08-14
+## [1.6.1] — 2026-08-29
 
 ### Changed
 - **The microphone is no longer held open.** It used to stay open for the life of
