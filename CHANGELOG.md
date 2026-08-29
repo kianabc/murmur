@@ -3,6 +3,23 @@
 All notable changes are recorded here. Versions follow [semantic versioning](https://semver.org):
 `MAJOR.MINOR.PATCH` — patch for fixes, minor for features, major for breaking changes.
 
+## [1.7.0] — 2026-08-14
+
+### Changed
+- **The microphone is no longer held open.** It used to stay open for the life of
+  the app so dictation could start instantly, which meant macOS showed its orange
+  microphone indicator permanently — and that indicator was telling the truth.
+  Murmur now opens the microphone when you start dictating and releases it the
+  moment you stop, so the indicator appears only while it's genuinely listening.
+  Opening costs about 55 ms.
+- The old behaviour is still available under **General → Microphone** if you'd
+  rather have the fastest possible start.
+
+### Note
+- With the microphone opening on demand there is nothing recorded from before you
+  press the key, so begin speaking once the popup appears. Under the always-open
+  setting, the rolling buffer still catches a word begun as you reach for the key.
+
 ## [1.6.0] — 2026-08-14
 
 ### Fixed

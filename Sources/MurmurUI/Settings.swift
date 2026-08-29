@@ -19,6 +19,13 @@ public final class SettingsModel: ObservableObject {
     @Published var hotkey: Hotkey { didSet { onHotkeyChange?(hotkey) } }
     @Published var holdDelay: TimeInterval { didSet { HoldDelayPreference.stored = holdDelay } }
     @Published var insertion: InsertionMode { didSet { InsertionPreference.current = insertion } }
+    @Published var micPolicy: MicrophonePolicy {
+        didSet {
+            guard micPolicy != oldValue else { return }
+            MicrophonePreference.current = micPolicy
+            onMicPolicyChange?(micPolicy)
+        }
+    }
     @Published var requireTextField: Bool { didSet { FocusGatePreference.isEnabled = requireTextField } }
 
     // Cleanup — the key is written on commit, never from a view update.
@@ -104,6 +111,8 @@ public final class SettingsModel: ObservableObject {
     private let permissions = Permissions()
     private var promptedAccessibility = false
     var onHotkeyChange: ((Hotkey) -> Void)?
+    /// Switching to always-open should take effect now, not at the next launch.
+    var onMicPolicyChange: ((MicrophonePolicy) -> Void)?
 
     private var usageObserver: NSObjectProtocol?
     private var keyStatusObserver: NSObjectProtocol?
@@ -118,6 +127,7 @@ public final class SettingsModel: ObservableObject {
         self.usage = usage
         self.hotkey = hotkey
         self.insertion = InsertionPreference.current
+        self.micPolicy = MicrophonePreference.current
         self.requireTextField = FocusGatePreference.isEnabled
         self.holdDelay = HoldDelayPreference.stored
         self.cleanupEnabled = CleanupPreference.isEnabled
@@ -325,11 +335,30 @@ private struct GeneralTab: View {
                     if model.hotkey.isModifier {
                         Text(model.holdDelay == 0
                              ? "With no delay, any shortcut using this key — ⌘⌥, ⌥⌦ — starts a dictation too."
-                             : "\(model.hotkey.displayName) on its own starts dictating. Held as part of a shortcut, like ⌘\(model.hotkey.displayName.dropFirst(6)) or \(model.hotkey.displayName.dropFirst(6))⌦, it doesn't. The delay costs no words — audio from before it is kept.")
+                             // "Costs no words" is only true while the microphone
+                             // is already open; on demand there is nothing
+                             // buffered from before it, so don't claim otherwise.
+                             : "\(model.hotkey.displayName) on its own starts dictating. Held as part of a shortcut, like ⌘\(model.hotkey.displayName.dropFirst(6)) or \(model.hotkey.displayName.dropFirst(6))⌦, it doesn't. "
+                               + (model.micPolicy == .alwaysOpen
+                                  ? "The delay costs no words — audio from before it is kept."
+                                  : "Begin speaking after the delay: with the microphone opening on demand, there's no recording of the moment before it."))
                     }
                 }
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Section {
+                Picker("Keep the microphone open", selection: $model.micPolicy) {
+                    ForEach(MicrophonePolicy.allCases, id: \.self) { Text($0.displayName).tag($0) }
+                }
+                .pickerStyle(.radioGroup)
+            } header: {
+                Text("Microphone")
+            } footer: {
+                Text(model.micPolicy.detail)
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Section {
@@ -747,6 +776,10 @@ public final class SettingsWindowController {
     private let initialHotkey: Hotkey
     private let onHotkeyChange: (Hotkey) -> Void
 
+    /// Applied immediately, so turning the microphone back on doesn't wait for a
+    /// relaunch — and turning it off releases it at once.
+    public var onMicPolicyChange: ((MicrophonePolicy) -> Void)?
+
     /// Built on first `show()`, never at launch. `SettingsModel.init` reads the
     /// API key from the Keychain, and a Keychain read can raise a modal prompt —
     /// during `applicationDidFinishLaunching` that blocks the main thread and the
@@ -756,6 +789,7 @@ public final class SettingsWindowController {
         if let _model { return _model }
         let created = SettingsModel(store: store, usage: usage, hotkey: initialHotkey)
         created.onHotkeyChange = onHotkeyChange
+        created.onMicPolicyChange = { [weak self] policy in self?.onMicPolicyChange?(policy) }
         _model = created
         return created
     }

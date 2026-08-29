@@ -403,6 +403,51 @@ case "hotkey-selftest":
     print(hotkeyFailures == 0 ? "all hotkey gestures pass" : "\(hotkeyFailures) hotkey gestures FAILED")
     if hotkeyFailures > 0 { exit(1) }
 
+case "mic-policy-selftest":
+    // The whole point is that macOS's orange indicator goes out between
+    // dictations, which only happens if the engine is genuinely closed.
+    var micFailures = 0
+    let policyBefore = MicrophonePreference.current
+    let micCap = AudioCapture()
+    let micFmt = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16000, channels: 1, interleaved: false)!
+    micCap.setTargetFormat(micFmt)
+
+    MicrophonePreference.current = .onDemand
+    if micCap.isRunning { print("FAIL  microphone open before any dictation"); micFailures += 1 }
+
+    var coldStarts: [Double] = []
+    for round in 1...3 {
+        let started = Date()
+        do { _ = try micCap.beginCapture() } catch {
+            print("FAIL  round \(round): \(error.localizedDescription)"); micFailures += 1; break
+        }
+        coldStarts.append(Date().timeIntervalSince(started) * 1000)
+        if !micCap.isRunning { print("FAIL  round \(round): not open while dictating"); micFailures += 1 }
+        micCap.endCapture()
+        if micCap.isRunning { print("FAIL  round \(round): still open after dictating"); micFailures += 1 }
+    }
+    if !coldStarts.isEmpty {
+        let avg = coldStarts.reduce(0, +) / Double(coldStarts.count)
+        print(String(format: "  cold start: %@ms (avg %.0fms)",
+                     coldStarts.map { String(format: "%.0f", $0) }.joined(separator: ", "), avg))
+    }
+
+    // Always-open must still behave as it always did.
+    MicrophonePreference.current = .alwaysOpen
+    do {
+        try micCap.warmUp()
+        _ = try micCap.beginCapture()
+        micCap.endCapture()
+        if !micCap.isRunning { print("FAIL  always-open closed the microphone"); micFailures += 1 }
+        micCap.shutDown()
+    } catch {
+        print("FAIL  always-open: \(error.localizedDescription)"); micFailures += 1
+    }
+    MicrophonePreference.current = policyBefore
+
+    print(micFailures == 0 ? "microphone is released between dictations" : "\(micFailures) microphone policy cases FAILED")
+    if micFailures > 0 { exit(1) }
+
 case "audio-selftest":
     // The engine used to be warmed once and assumed to run forever. It doesn't:
     // macOS kills the tap on any hardware change, and the app went quietly deaf.
@@ -427,7 +472,7 @@ case "audio-selftest":
     var audioFailures = 0
     do {
         try cap.warmUp()
-        cap.beginCapture()
+        try cap.beginCapture()
         if !waitForBuffers("before restart") { audioFailures += 1 }
         let before = counter.count
 

@@ -9,6 +9,7 @@ import MurmurUI
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var controller: DictationController!
     private var menuBar: MenuBarController!
+    private var speechEngine: SpeechAnalyzerEngine?
     private let permissions = Permissions()
     private var correctionStore: CorrectionStore?
     private var usageStore: UsageStore?
@@ -46,6 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         EditMenu.install()
 
         let engine = SpeechAnalyzerEngine()
+        speechEngine = engine
         let sink = PasteboardSink()
         controller = DictationController(engine: engine, sink: sink)
         // A paste that goes nowhere used to lose the dictation outright: the
@@ -143,6 +145,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         hud = DictationHUD(controller: controller)
+        settings?.onMicPolicyChange = { [weak self] policy in
+            guard let speech = self?.speechEngine else { return }
+            switch policy {
+            case .alwaysOpen: try? speech.startAudio()
+            case .onDemand: speech.stopAudio()
+            }
+            Log.echo("microphone policy: \(policy.rawValue)")
+        }
+
         menuBar = MenuBarController(controller: controller)
         menuBar.onShowSettings = { [weak self] in
             guard let self else { return }
@@ -208,8 +219,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 try await speech.prepare { progress in
                     Log.echo("model download \(Int(progress.fractionCompleted * 100))%")
                 }
-                try speech.startAudio()
-                Log.echo("engine ready — hold \(self.controller.hotkey.displayName) to dictate")
+                // Only pre-open the microphone when the user has asked for it.
+                // Otherwise it opens per dictation and macOS shows its orange
+                // indicator only while we are genuinely listening.
+                if MicrophonePreference.current == .alwaysOpen {
+                    try speech.startAudio()
+                }
+                let policy = MicrophonePreference.current == .alwaysOpen
+                    ? "microphone held open"
+                    : "microphone opens only while dictating"
+                Log.echo("engine ready (\(policy)) — hold \(self.controller.hotkey.displayName) to dictate")
             } catch {
                 Log.echo("engine unavailable: \(error.localizedDescription)")
             }

@@ -147,9 +147,8 @@ public final class SpeechAnalyzerEngine: DictationEngine {
         Log.echo("engine: model ready · \(Int(format.sampleRate)) Hz \(format.commonFormat.rawValue)")
     }
 
-    /// Opens the microphone and leaves the engine warm. Separate from `prepare()`
-    /// because file transcription and benchmarking need the model but not the
-    /// mic — and warming the mic without permission throws.
+    /// Opens the microphone and leaves it open. Only used under the always-open
+    /// policy — on demand, `beginCapture()` opens it per dictation instead.
     public func startAudio() throws {
         try capture.warmUp()
     }
@@ -198,8 +197,10 @@ public final class SpeechAnalyzerEngine: DictationEngine {
             self?.countBuffer()
         }
 
-        // Pre-roll first, so a syllable spoken before the key registered survives.
-        let preRoll = capture.beginCapture()
+        // Pre-roll first, so a syllable spoken before the key registered
+        // survives. Under the on-demand policy this also opens the microphone,
+        // and so is the point where an unavailable mic surfaces.
+        let preRoll = try capture.beginCapture()
         for buffer in preRoll {
             continuation.yield(AnalyzerInput(buffer: buffer))
         }

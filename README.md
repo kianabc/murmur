@@ -124,6 +124,10 @@ Without a key, Murmur still works — it just types what you said, unedited.
 
 ## Your privacy
 
+- **The microphone is only open while you're dictating.** macOS shows its orange
+  microphone indicator for exactly as long as Murmur is listening, and no longer.
+  You can trade that for slightly faster starts under **Settings → General →
+  Microphone**.
 - **Your voice never leaves your Mac.** Transcription happens on-device.
 - **Text is only sent anywhere if you turn on AI cleanup**, and then only the
   transcript — never audio.

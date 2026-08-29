@@ -23,13 +23,15 @@ public enum AudioError: LocalizedError {
 ///
 /// Two things matter here beyond "get samples":
 ///
-///  - **The engine stays warm.** Cold-starting AVAudioEngine costs 100–200ms,
-///    a large slice of the latency budget. It's started once and left running;
-///    `beginCapture()` only flips a flag. "Warm" is not "permanent", though —
-///    see `configurationChanged`.
-///  - **Pre-roll.** A rolling ~600ms is always buffered, so the first syllable
-///    isn't clipped when you press the key mid-word — and so the hotkey's arming
-///    delay can discard nothing.
+///  - **The engine is opened on demand by default.** Keeping it warm saves the
+///    ~100ms it costs to start, but holding the microphone open all day makes
+///    macOS show its orange in-use indicator permanently — and that indicator is
+///    telling the truth. `MicrophonePolicy` decides; on demand, `beginCapture()`
+///    starts the engine and `endCapture()` closes it again.
+///  - **Pre-roll.** While the engine is open a rolling ~600ms is buffered, so
+///    the first syllable isn't clipped when you press the key mid-word — and so
+///    the hotkey's arming delay can discard nothing. There is nothing to buffer
+///    before an on-demand start, which is the cost of not holding the mic.
 public final class AudioCapture {
     /// Called on the audio thread with converted buffers. Keep it cheap.
     public var onBuffer: ((AVAudioPCMBuffer) -> Void)?
@@ -93,6 +95,7 @@ public final class AudioCapture {
     /// Start the engine and leave it running for the life of the app.
     public func warmUp() throws {
         guard !isWarm else { return }
+        let startedAt = Date()
 
         let input = engine.inputNode
 
@@ -142,7 +145,11 @@ public final class AudioCapture {
         isWarm = true
         noteBuffer()
         let targetDesc = targetFormat.map { "\(Int($0.sampleRate))Hz/\($0.channelCount)ch" } ?? "passthrough"
-        Log.echo("audio: engine warm · \(Int(inputFormat.sampleRate))Hz/\(inputFormat.channelCount)ch → \(targetDesc)")
+        Log.echo(String(
+            format: "audio: engine open in %.0fms · %dHz/%dch → %@",
+            Date().timeIntervalSince(startedAt) * 1000,
+            Int(inputFormat.sampleRate), Int(inputFormat.channelCount), targetDesc
+        ))
 
         observeInterruptions()
         startHealthWatch()
@@ -161,6 +168,13 @@ public final class AudioCapture {
             Log.echo(String(format: "audio: no buffers for %.0fs", quiet))
             self.restart(reason: "input went quiet")
         }
+    }
+
+    /// Whether we should be holding the microphone at all right now.
+    private var wantsMicrophone: Bool {
+        if MicrophonePreference.current == .alwaysOpen { return true }
+        lock.lock(); defer { lock.unlock() }
+        return capturing
     }
 
     private var lastBuffer: Date {
@@ -197,7 +211,10 @@ public final class AudioCapture {
         configObserver = NotificationCenter.default.addObserver(
             forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
         ) { [weak self] _ in
-            self?.restart(reason: "hardware configuration changed")
+            // Only meaningful while we hold the microphone. Rebuilding when idle
+            // would open it — exactly what the on-demand policy exists to avoid.
+            guard let self, self.isWarm else { return }
+            self.restart(reason: "hardware configuration changed")
         }
 
         // Waking doesn't always post a configuration change, and a tap that
@@ -205,7 +222,8 @@ public final class AudioCapture {
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            self?.restart(reason: "woke from sleep")
+            guard let self, self.isWarm else { return }
+            self.restart(reason: "woke from sleep")
         }
     }
 
@@ -255,7 +273,8 @@ public final class AudioCapture {
                 error.localizedDescription, delay
             ))
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                self?.rebuild(reason: "retry")
+                guard let self, self.wantsMicrophone else { return }
+                self.rebuild(reason: "retry")
             }
         }
     }
@@ -264,8 +283,13 @@ public final class AudioCapture {
 
     /// Opens the capture window and returns the pre-roll — the audio captured
     /// just *before* the key went down. Feed it to the recogniser first.
+    ///
+    /// Throws only when the microphone can't be opened, which under the
+    /// on-demand policy is now discovered here rather than at launch.
     @discardableResult
-    public func beginCapture() -> [AVAudioPCMBuffer] {
+    public func beginCapture() throws -> [AVAudioPCMBuffer] {
+        if !isWarm { try warmUp() }
+
         lock.lock()
         capturing = true
         peakLevel = 0
@@ -286,6 +310,11 @@ public final class AudioCapture {
         preRoll.removeAll(keepingCapacity: true)
         preRollFrames = 0
         lock.unlock()
+
+        // Give the microphone back. The orange indicator going out is the whole
+        // point of the on-demand policy, so this must not be deferred or
+        // batched — it happens the moment the key is released.
+        if MicrophonePreference.current == .onDemand { shutDown() }
     }
 
     // MARK: - Tap
