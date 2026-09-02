@@ -3,6 +3,23 @@
 All notable changes are recorded here. Versions follow [semantic versioning](https://semver.org):
 `MAJOR.MINOR.PATCH` — patch for fixes, minor for features, major for breaking changes.
 
+## [1.6.2] — 2026-08-29
+
+### Fixed
+- **Murmur wrongly decided your text hadn't been pasted, and took it back.** The
+  check added in 1.6.0 asked macOS whether the text field had changed after
+  pasting. It turns out macOS often answers with stale information — across 73
+  real dictations it claimed failure 11 times, every one of them reporting the
+  cursor at the very start of documents thousands of characters long. Each false
+  alarm replaced whatever was on your clipboard and put an error on screen.
+  Murmur no longer acts on that signal at all. Your clipboard is left alone.
+- **An error message blocked the next dictation for two seconds.** Pressing the
+  key while a failure was still on screen did nothing and said nothing, which
+  looks exactly like the app having died.
+- **New: "Copy It Again" in the menu bar.** If a dictation ever does go nowhere,
+  the last transcript is one click from your clipboard — no guessing required,
+  which is the part the automatic version got wrong.
+
 ## [1.6.1] — 2026-08-29
 
 ### Changed

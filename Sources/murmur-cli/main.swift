@@ -386,6 +386,14 @@ case "hotkey-selftest":
         m.simulateKeyDown()
     }
 
+    // A failure message about the last attempt must not swallow the next press.
+    // It did, for two seconds, and that reads exactly like the app having died.
+    gesture("a press after a failure still records", ["begin", "finish"]) { m, settle in
+        m.simulateKeyDown()
+        settle()
+        m.simulateKeyUp()
+    }
+
     gesture("Esc cancels a recording", ["begin", "cancel"]) { m, settle in
         m.simulateKeyDown()
         settle()

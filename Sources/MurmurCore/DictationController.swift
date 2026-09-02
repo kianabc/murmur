@@ -124,7 +124,15 @@ public final class DictationController: ObservableObject {
     }
 
     private func begin() {
-        guard case .idle = state else {
+        switch state {
+        case .idle:
+            break
+        case .failed:
+            // A message about the *last* attempt must never block the next one.
+            // It sat on screen for two seconds and swallowed every press in the
+            // meantime, which reads exactly like the app having died.
+            break
+        case .recording, .processing:
             // Silence here is how a wedged state machine looked like a dead
             // hotkey: every press did nothing and said nothing.
             Log.echo("hotkey ignored — still \(state)")

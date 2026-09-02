@@ -105,6 +105,17 @@ public final class MenuBarController {
             let item = NSMenuItem(title: "Last: \u{201C}\(preview)\u{201D}", action: nil, keyEquivalent: "")
             item.isEnabled = false
             menu.addItem(item)
+
+            // Recovery for a paste that went nowhere. Deliberately something you
+            // ask for: guessing whether the last paste landed meant clobbering
+            // the clipboard on a signal that turned out to be noise.
+            let copy = NSMenuItem(
+                title: "Copy It Again",
+                action: #selector(copyLastTranscript),
+                keyEquivalent: "c"
+            )
+            copy.target = self
+            menu.addItem(copy)
         }
 
         // Works without Input Monitoring — the whole point of the test bench.
@@ -145,6 +156,14 @@ public final class MenuBarController {
         let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         item.isEnabled = false
         return item
+    }
+
+    @objc private func copyLastTranscript() {
+        let text = controller.lastTranscript
+        guard !text.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        Log.echo("copied last transcript (\(text.count) chars) on request")
     }
 
     @objc private func showSettings() {

@@ -107,15 +107,24 @@ public final class PasteboardSink: TextSink {
             // clobbering it would be a genuinely infuriating bug.
             guard pasteboard.changeCount == ourChangeCount else { return }
 
-            // Only an unambiguous failure keeps the clipboard: readable before
-            // and after, and nothing moved. Anywhere accessibility stays quiet we
-            // restore as usual, because silently replacing what someone had
-            // copied — on a guess — is its own kind of data loss.
+            // This measurement is recorded but NOT acted on, and that is the
+            // whole point of it.
+            //
+            // It used to decide whether to keep the text on the clipboard, on
+            // the theory that "readable before and after, and nothing moved" was
+            // positive evidence of a failed paste. It isn't. Across 73 real
+            // insertions it fired 11 times, and every single reading reported a
+            // caret at position 0 — in documents of three thousand characters.
+            // Accessibility was returning stale values, not reporting a failure,
+            // and the app was clobbering the clipboard and refusing to type on
+            // the strength of it.
+            //
+            // "Accessibility didn't tell us anything changed" is not the same
+            // claim as "the paste failed", and until something can tell the two
+            // apart the clipboard stays untouched. Recovery lives on the menu
+            // instead, where it needs no guess to be correct.
             if let before, let after = Self.fieldState(), before == after {
-                Log.echo("insert: paste did not land (\(before.characters) chars, caret \(before.caret) unchanged) — left on clipboard")
-                self?.lastInsertWasClipboardOnly = true
-                self?.onPasteFallback?(text)
-                return
+                Log.echo("insert: no AX change after paste (\(before.characters) chars, caret \(before.caret)) — not acted on")
             }
 
             Self.restore(saved, to: pasteboard)
