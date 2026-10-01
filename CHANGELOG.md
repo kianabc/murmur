@@ -3,6 +3,30 @@
 All notable changes are recorded here. Versions follow [semantic versioning](https://semver.org):
 `MAJOR.MINOR.PATCH` — patch for fixes, minor for features, major for breaking changes.
 
+## [1.7.0] — 2026-10-01
+
+### Added
+- **Nothing you dictate is lost when there's nowhere to type it.** If the cursor
+  isn't in a text field when you finish, Murmur copies the text to your clipboard
+  and says so on screen — "Couldn't type that — copied. Press ⌘V" — instead of
+  pasting into a window that ignores it.
+- The same now happens, with the same message, when a password field is focused
+  or when Accessibility isn't granted. Those used to end in silence or an error
+  with your words gone.
+
+### Changed
+- **Murmur no longer refuses to start when it can't find a text field.** Throwing
+  away the dictation is worse than recording it and handing it back on the
+  clipboard, so it records. The old behaviour is still available under
+  General → Text output.
+- The on-screen message after a dictation you have to act on now stays up for
+  five seconds rather than two — long enough to read it and press ⌘V.
+
+### Fixed
+- Diagnostics recorded "no focused element" without saying which app said it,
+  which was the one detail needed to widen the list of places Murmur knows it
+  can't type into.
+
 ## [1.6.2] — 2026-08-29
 
 ### Fixed

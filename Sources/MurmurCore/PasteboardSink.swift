@@ -70,24 +70,43 @@ public final class PasteboardSink: TextSink {
         return FieldState(characters: characters, caret: caret)
     }
 
-    public func insert(_ text: String) throws {
-        guard !Permissions.isSecureInputActive else { throw InsertError.secureInputActive }
+    @discardableResult
+    public func insert(_ text: String) throws -> InsertOutcome {
+        // A password field blocks the paste and the event tap both. Losing the
+        // dictation over it helps nobody; hand it back on the clipboard.
+        if Permissions.isSecureInputActive {
+            return copyOnly(text, reason: "a password field is focused")
+        }
 
         // Two reasons to stop at the clipboard: the user asked for that, or we
         // can't type because Accessibility isn't granted. Degrading rather than
         // failing keeps the app usable either way.
         let wantsTyping = InsertionPreference.current == .typeIntoApp
         let canType = wantsTyping && AXIsProcessTrusted()
-        lastInsertWasClipboardOnly = !canType
 
         guard canType else {
-            let pasteboard = NSPasteboard.general
-            pasteboard.clearContents()
-            pasteboard.setString(text, forType: .string)
-            let why = wantsTyping ? "no Accessibility" : "set to clipboard only"
-            Log.echo("insert: clipboard (\(why)) — \(text.count) chars")
-            return
+            // Clipboard-only is the user's own setting, so it isn't news; a
+            // missing permission is.
+            guard wantsTyping else {
+                _ = copyOnly(text, reason: "set to clipboard only")
+                return .typed
+            }
+            return copyOnly(text, reason: "Accessibility isn't granted")
         }
+
+        // Before pasting, not after. Whether a paste *did* land is not reliably
+        // knowable — stale accessibility reads made that check fire on healthy
+        // pastes. Whether there is anywhere to paste *at all* is a different
+        // question, asked of the app before anything is sent, and an explicit
+        // non-text role is a real answer rather than an absence of one.
+        let focus = FocusProbe.probe()
+        if case .notEditable(let role) = focus.focus {
+            Log.echo("insert: nowhere to type — \(focus.description)")
+            return copyOnly(text, reason: "no text field focused (\(role))")
+        }
+        // Recorded on every insert so the list of refusing roles can be widened
+        // against what apps actually report, rather than what they ought to.
+        Log.echo("insert: focus \(focus.description)")
 
         let pasteboard = NSPasteboard.general
         let saved = Self.snapshot(pasteboard)
@@ -101,6 +120,8 @@ public final class PasteboardSink: TextSink {
         let before = Self.fieldState()
 
         synthesizePaste()
+
+        lastInsertWasClipboardOnly = false
 
         DispatchQueue.main.asyncAfter(deadline: .now() + restoreDelay) { [weak self] in
             // If the user copied something during our window, their copy wins —
@@ -129,6 +150,20 @@ public final class PasteboardSink: TextSink {
 
             Self.restore(saved, to: pasteboard)
         }
+
+        return .typed
+    }
+
+    /// Leaves the text on the clipboard and says so. The only route by which
+    /// Murmur ever replaces what the user had copied.
+    @discardableResult
+    private func copyOnly(_ text: String, reason: String) -> InsertOutcome {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+        lastInsertWasClipboardOnly = true
+        Log.echo("insert: clipboard (\(reason)) — \(text.count) chars")
+        return .copied(reason: reason)
     }
 
     // MARK: - Pasteboard save/restore

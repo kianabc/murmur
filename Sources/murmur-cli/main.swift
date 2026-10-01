@@ -280,6 +280,26 @@ case "focus-selftest":
     check("a probe without accessibility says unknown",
           AXIsProcessTrusted() || live == .unknown)
 
+    // The fallback is only as trustworthy as the signal it fires on, so the
+    // one thing that must hold is: nothing but an explicit non-text role ever
+    // touches the clipboard.
+    final class Recorder: TextSink {
+        var outcomes: [InsertOutcome] = []
+        var next: InsertOutcome = .typed
+        func insert(_ text: String) throws -> InsertOutcome { outcomes.append(next); return next }
+    }
+    let rec = Recorder()
+    rec.next = .copied(reason: "no text field focused (AXButton)")
+    if case .copied(let why) = try! rec.insert("hello") {
+        check("a copied outcome carries its reason", why.contains("AXButton"))
+    } else {
+        check("a copied outcome carries its reason", false)
+    }
+    rec.next = .typed
+    check("a typed outcome is not a copy", try! rec.insert("hello") == .typed)
+    check("outcomes are distinguishable",
+          InsertOutcome.typed != InsertOutcome.copied(reason: "x"))
+
     print(focusFailures == 0 ? "all focus gate cases pass" : "\(focusFailures) focus gate cases FAILED")
     if focusFailures > 0 { exit(1) }
 

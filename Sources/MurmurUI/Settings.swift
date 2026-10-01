@@ -375,8 +375,10 @@ private struct GeneralTab: View {
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(model.insertion.detail)
-                    if model.insertion == .typeIntoApp && model.requireTextField {
-                        Text("Holding the key with nothing to type into does nothing at all, so Murmur won't start listening. It only refuses when it's certain — if an app doesn't say, it goes ahead.")
+                    if model.insertion == .typeIntoApp {
+                        Text(model.requireTextField
+                             ? "Murmur won't start listening when there's nothing to type into, so the dictation is never made. Leave this off and it records anyway, then puts the text on your clipboard if it turns out there was nowhere to put it."
+                             : "If there's nowhere to type when you finish, Murmur copies the text to your clipboard and tells you, so nothing you said is lost.")
                     }
                 }
                 .font(.caption).foregroundStyle(.secondary)

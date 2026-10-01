@@ -28,8 +28,17 @@ public protocol DictationEngine: AnyObject {
 }
 
 /// Puts text into whatever app is frontmost.
+/// What became of the text. A sink that quietly falls back to the clipboard and
+/// reports success is how a dictation ends up nowhere with nothing said about it.
+public enum InsertOutcome: Equatable, Sendable {
+    case typed
+    /// Left on the clipboard for the user to paste, and why.
+    case copied(reason: String)
+}
+
 public protocol TextSink: AnyObject {
-    func insert(_ text: String) throws
+    @discardableResult
+    func insert(_ text: String) throws -> InsertOutcome
 }
 
 /// Wires hotkey → engine → sink and owns the state machine.
@@ -240,9 +249,17 @@ public final class DictationController: ObservableObject {
 
                 let text = await postProcess?(raw) ?? raw
                 lastTranscript = text
-                try sink.insert(text)
-                Log.echo("inserted \(text.count) chars")
-                state = .idle
+                switch try sink.insert(text) {
+                case .typed:
+                    Log.echo("inserted \(text.count) chars")
+                    state = .idle
+                case .copied(let reason):
+                    // Never silently. The words are safe, but they are not where
+                    // the user was looking, and only they can finish the job.
+                    Log.echo("copied to clipboard — \(reason)")
+                    state = .failed("Couldn't type that — copied. Press ⌘V")
+                    resetSoon(after: 5)
+                }
                 partialText = ""
             } catch {
                 Log.echo("FAILED: \(error)")
@@ -271,9 +288,11 @@ public final class DictationController: ObservableObject {
         state = .idle
     }
 
-    private func resetSoon() {
+    /// Longer for anything the user has to act on — two seconds is enough to
+    /// notice a message but not enough to read one and do what it says.
+    private func resetSoon(after seconds: Double = 2) {
         Task { @MainActor in
-            try? await Task.sleep(for: .seconds(2))
+            try? await Task.sleep(for: .seconds(seconds))
             if case .failed = state { state = .idle }
         }
     }

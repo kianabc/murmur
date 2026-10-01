@@ -75,8 +75,11 @@ public enum FocusProbe {
         guard AXUIElementCopyAttributeValue(
             system, kAXFocusedUIElementAttribute as CFString, &focusedRef
         ) == .success, let focused = focusedRef as! AXUIElement? else {
-            // Plenty of healthy apps report nothing here. Not evidence of absence.
-            return FocusReading(focus: .unknown, description: "no focused element")
+            // Plenty of healthy apps report nothing here. Not evidence of
+            // absence — but which apps say nothing is the whole question, and
+            // this used to drop the one detail that could answer it.
+            let app = NSWorkspace.shared.frontmostApplication?.localizedName ?? "?"
+            return FocusReading(focus: .unknown, description: "app=\(app) no focused element")
         }
         AXUIElementSetMessagingTimeout(focused, messagingTimeout)
 
@@ -127,11 +130,15 @@ public enum FocusProbe {
     }
 }
 
+/// Refusing to start when there's nowhere to type. Off by default: it throws
+/// away the dictation, and keeping the words on the clipboard — which is what
+/// happens now when the paste has nowhere to go — is better in every case where
+/// the user has already spoken.
 public enum FocusGatePreference {
     private static let key = "com.torimi.murmur.requireTextField"
 
     public static var isEnabled: Bool {
-        get { UserDefaults.standard.object(forKey: key) as? Bool ?? true }
+        get { UserDefaults.standard.object(forKey: key) as? Bool ?? false }
         set { UserDefaults.standard.set(newValue, forKey: key) }
     }
 }
