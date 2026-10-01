@@ -414,9 +414,10 @@ private struct CleanupTab: View {
                 Section {
                     Toggle("Skip AI cleanup for short phrases", isOn: $model.skipShortPhrases)
                     if model.skipShortPhrases {
-                        Stepper(value: $model.skipShortMaxWords,
-                                in: ShortPhrasePreference.range) {
-                            Text("Short means **\(model.skipShortMaxWords) words** or fewer")
+                        Picker("Short means", selection: $model.skipShortMaxWords) {
+                            ForEach(ShortPhrasePreference.choices, id: \.self) { n in
+                                Text("\(n) words or fewer").tag(n)
+                            }
                         }
                     }
                 } footer: {

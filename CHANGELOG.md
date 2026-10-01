@@ -3,6 +3,17 @@
 All notable changes are recorded here. Versions follow [semantic versioning](https://semver.org):
 `MAJOR.MINOR.PATCH` — patch for fixes, minor for features, major for breaking changes.
 
+## [1.8.1] — 2026-10-01
+
+### Changed
+- The short-phrase word count is a menu again — 5, 10, 15, 20 or 30 — instead of
+  a stepper you had to click up one word at a time.
+
+### Fixed
+- The last few lines before Murmur quit could be missing from the log, because
+  they were still queued when the process ended. That made an ordinary shutdown
+  look like the app had vanished.
+
 ## [1.8.0] — 2026-10-01
 
 ### Added

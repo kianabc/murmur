@@ -29,9 +29,10 @@ public enum ShortPhrasePreference {
     private static let enabledKey = "com.torimi.murmur.cleanup.skipShort"
     private static let maxWordsKey = "com.torimi.murmur.cleanup.skipShortMaxWords"
 
-    /// What the stepper allows. Below two there is nothing a model could fix;
-    /// above thirty you are no longer describing a short phrase.
-    public static let range = 2...30
+    /// Offered in the menu. A short list of round numbers beats a stepper here:
+    /// nobody is choosing between 13 and 14 words, and clicking to 30 one press
+    /// at a time is worse than picking it.
+    public static let choices = [5, 10, 15, 20, 30]
 
     /// Ten covers a whole short instruction — "change the date to the fifteenth
     /// of next month" — not just a fragment, while still leaving anything
@@ -49,7 +50,7 @@ public enum ShortPhrasePreference {
         // one, must not be able to disable cleanup entirely.
         get {
             let stored = UserDefaults.standard.object(forKey: maxWordsKey) as? Int ?? defaultMaxWords
-            return min(max(stored, range.lowerBound), range.upperBound)
+            return min(max(stored, choices.first!), choices.last!)
         }
         set { UserDefaults.standard.set(newValue, forKey: maxWordsKey) }
     }

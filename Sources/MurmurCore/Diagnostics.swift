@@ -11,43 +11,70 @@ import Darwin
 public enum Diagnostics {
     private static let sessionKey = "com.torimi.murmur.session.open"
     private static let sessionStartedKey = "com.torimi.murmur.session.startedAt"
+    private static let versionKey = "com.torimi.murmur.session.version"
 
     public static var crashLogURL: URL {
         Log.fileURL.deletingLastPathComponent().appendingPathComponent("crashes.log")
     }
 
+    /// How the previous run ended. Returned rather than only logged, because a
+    /// detection that has never fired and only writes to a file is
+    /// indistinguishable from one that works.
+    public enum PreviousSession: Equatable, Sendable {
+        case firstRun
+        case clean
+        case unclean(version: String, ranMinutes: Int)
+    }
+
     /// Call once, as early in launch as possible.
     public static func begin(version: String) {
-        reportPreviousSession()
+        report(previousSession())
         installHandlers()
 
         UserDefaults.standard.set(true, forKey: sessionKey)
         UserDefaults.standard.set(Date(), forKey: sessionStartedKey)
-        UserDefaults.standard.set(version, forKey: "com.torimi.murmur.session.version")
+        UserDefaults.standard.set(version, forKey: versionKey)
     }
 
     /// Call from `applicationWillTerminate`. Its *absence* is the signal.
     public static func endCleanly() {
         Log.echo("exiting cleanly")
         UserDefaults.standard.set(false, forKey: sessionKey)
+        // The process is about to go. An async write would not survive it.
+        Log.flush()
     }
 
-    private static func reportPreviousSession() {
-        let defaults = UserDefaults.standard
-        guard defaults.object(forKey: sessionKey) != nil else { return }
-        guard defaults.bool(forKey: sessionKey) else { return }
+    public static func previousSession(
+        defaults: UserDefaults = .standard
+    ) -> PreviousSession {
+        guard defaults.object(forKey: sessionKey) != nil else { return .firstRun }
+        guard defaults.bool(forKey: sessionKey) else { return .clean }
 
         let started = defaults.object(forKey: sessionStartedKey) as? Date
-        let version = defaults.string(forKey: "com.torimi.murmur.session.version") ?? "?"
-        let ran = started.map { String(format: "%.0f min", -$0.timeIntervalSinceNow / 60) } ?? "unknown"
-        Log.echo("PREVIOUS RUN DID NOT EXIT CLEANLY — v\(version), started \(started.map(String.init(describing:)) ?? "?"), ran \(ran)")
-        Log.echo("  (force-quit, killed, or crashed. A crash would also appear in crashes.log below.)")
+        let version = defaults.string(forKey: versionKey) ?? "?"
+        let ran = started.map { Int(-$0.timeIntervalSinceNow / 60) } ?? -1
+        return .unclean(version: version, ranMinutes: ran)
+    }
+
+    private static func report(_ outcome: PreviousSession) {
+        guard case .unclean(let version, let ran) = outcome else { return }
+
+        Log.echo("PREVIOUS RUN DID NOT EXIT CLEANLY — v\(version), ran \(ran) min")
+        // Worth spelling out, because the commonest cause by far is benign and
+        // used to read as a crash: replacing Murmur.app while it is running
+        // makes macOS kill it, since the code signature it was launched from no
+        // longer exists. Updating in place avoids that — it waits for the old
+        // process to exit first.
+        Log.echo("  (a crash, a force-quit, or the app being replaced underneath a running copy)")
 
         if let crashes = try? String(contentsOf: crashLogURL, encoding: .utf8),
            !crashes.isEmpty {
             let recent = crashes.split(separator: "\n").suffix(3).joined(separator: " | ")
-            Log.echo("  last crash log entries: \(recent)")
+            Log.echo("  crashes.log says: \(recent)")
+        } else {
+            Log.echo("  crashes.log is empty, so it did not crash in a way we could catch")
         }
+        Log.flush()
     }
 
     // MARK: - Fatal signals

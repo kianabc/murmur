@@ -33,6 +33,17 @@ public enum Log {
 
     private static let fileQueue = DispatchQueue(label: "com.torimi.murmur.log")
 
+    /// Waits for every queued line to reach the file.
+    ///
+    /// Writes are async so logging never blocks dictation, but that means the
+    /// lines written immediately before the process exits — which are precisely
+    /// the ones worth having — can be lost. That is how a clean shutdown ended
+    /// up recorded in preferences but missing from the log, making a normal quit
+    /// look like a disappearance.
+    public static func flush() {
+        fileQueue.sync {}
+    }
+
     private static func appendToFile(_ line: String) {
         fileQueue.async {
             let url = fileURL

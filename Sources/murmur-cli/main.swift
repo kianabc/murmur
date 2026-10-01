@@ -259,6 +259,39 @@ case "seed-usage":
     }
     print("seeded 45 days of usage")
 
+case "diagnostics-selftest":
+    // The whole point of this is to speak up after a bad exit, and it had never
+    // once fired on a real machine. A detection that only writes to a file it
+    // has never written to is indistinguishable from one that does not work.
+    var diagFailures = 0
+    let scratch = UserDefaults(suiteName: "murmur.diagnostics.selftest")!
+    scratch.removePersistentDomain(forName: "murmur.diagnostics.selftest")
+
+    func expectSession(_ want: Diagnostics.PreviousSession, _ what: String) {
+        let got = Diagnostics.previousSession(defaults: scratch)
+        if got != want {
+            diagFailures += 1
+            print("FAIL  \(what): got \(got), want \(want)")
+        } else {
+            print("  ok  \(what) → \(got)")
+        }
+    }
+
+    expectSession(.firstRun, "a machine that has never run Murmur")
+
+    scratch.set(false, forKey: "com.torimi.murmur.session.open")
+    expectSession(.clean, "after a clean quit")
+
+    scratch.set(true, forKey: "com.torimi.murmur.session.open")
+    scratch.set(Date().addingTimeInterval(-13 * 60), forKey: "com.torimi.murmur.session.startedAt")
+    scratch.set("1.7.0 (45)", forKey: "com.torimi.murmur.session.version")
+    expectSession(.unclean(version: "1.7.0 (45)", ranMinutes: 13),
+                  "after being killed 13 minutes in")
+
+    scratch.removePersistentDomain(forName: "murmur.diagnostics.selftest")
+    print(diagFailures == 0 ? "unclean exits are detected" : "\(diagFailures) diagnostics cases FAILED")
+    if diagFailures > 0 { exit(1) }
+
 case "updater-selftest":
     // The updater fetches something from the internet and replaces an app that
     // already holds Accessibility, Input Monitoring and the microphone. Its
@@ -508,12 +541,12 @@ case "shortphrase-selftest":
     // for everything, or turn the feature into a no-op.
     let maxBefore = ShortPhrasePreference.maxWords
     ShortPhrasePreference.maxWords = 9999
-    if ShortPhrasePreference.maxWords > ShortPhrasePreference.range.upperBound {
+    if ShortPhrasePreference.maxWords > ShortPhrasePreference.choices.last! {
         shortFailures += 1
         print("FAIL  an absurd stored threshold was not clamped")
     }
     ShortPhrasePreference.maxWords = 0
-    if ShortPhrasePreference.maxWords < ShortPhrasePreference.range.lowerBound {
+    if ShortPhrasePreference.maxWords < ShortPhrasePreference.choices.first! {
         shortFailures += 1
         print("FAIL  a zero stored threshold was not clamped")
     }
