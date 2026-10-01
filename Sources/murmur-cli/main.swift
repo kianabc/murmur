@@ -309,6 +309,13 @@ case "hud-selftest":
           expect: { $0.y < 200 },
           describe: "near the bottom of the window")
 
+    // The reported case, measured off the photo: Ghostty in the left ~70% of
+    // the screen, not fullscreen, not full width. The HUD was landing at the
+    // window's top-left while the prompt sat at its bottom.
+    place("windowed terminal, left of screen", CGRect(x: 60, y: 90, width: 1150, height: 900), .element,
+          expect: { $0.y < 90 + 200 && $0.x > 60 && $0.x + 360 < 60 + 1150 },
+          describe: "near the bottom of the terminal window, horizontally inside it")
+
     // A tall editor pane in the upper half of the screen.
     place("tall editor pane", CGRect(x: 200, y: 500, width: 800, height: 500), .element,
           expect: { $0.y > 500 && $0.y < 700 },
