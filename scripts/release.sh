@@ -26,6 +26,20 @@ if [ -n "$(git status --porcelain)" ]; then
   exit 1
 fi
 
+# A tag that already exists somewhere other than HEAD means work has landed on
+# top of a version that was already cut — which is how a tag ends up describing
+# less than its own changelog entry claims. Nothing published yet means it can
+# simply be moved, but that has to be a decision, not a silent overwrite.
+if EXISTING="$(git rev-parse -q --verify "refs/tags/v$VERSION")"; then
+  if [ "$EXISTING" != "$(git rev-parse HEAD)" ]; then
+    echo "v$VERSION is already tagged at ${EXISTING:0:7}, but HEAD is $(git rev-parse --short HEAD)." >&2
+    echo "$(git rev-list --count "v$VERSION"..HEAD) commit(s) have landed since it was cut." >&2
+    echo "Either bump the version, or move the tag deliberately:" >&2
+    echo "  git tag -d v$VERSION && git push origin :refs/tags/v$VERSION" >&2
+    exit 1
+  fi
+fi
+
 # The changelog is part of the release, not an afterthought: refuse to tag
 # without an entry, so no version can ship undocumented.
 if ! grep -q "## \[$VERSION\]" CHANGELOG.md; then
