@@ -44,19 +44,31 @@ public enum FocusProbe {
         kAXTextFieldRole, kAXTextAreaRole, kAXComboBoxRole, "AXSearchField",
     ]
 
-    /// Roles that unambiguously take no text.
+    /// Decides from what the focused element says about itself.
     ///
-    /// Tables, rows, cells and web areas are deliberately absent: a selected
-    /// spreadsheet cell does accept a paste, and a web area is as likely to be a
-    /// rich text editor as an article. When in doubt this list stays out of the
-    /// way — see the note on the enum.
-    private static let refusingRoles: Set<String> = [
-        kAXButtonRole, kAXCheckBoxRole, kAXRadioButtonRole, kAXPopUpButtonRole,
-        kAXMenuItemRole, kAXMenuBarItemRole, kAXMenuButtonRole,
-        kAXImageRole, kAXStaticTextRole, kAXSliderRole, "AXLink",
-        kAXTabGroupRole, kAXToolbarRole, kAXScrollBarRole,
-        kAXWindowRole, kAXSheetRole, kAXDisclosureTriangleRole,
-    ]
+    /// Written against what real apps actually reported, which was not what the
+    /// first version assumed:
+    ///
+    ///   Claude, WhatsApp  AXTextArea   settable       takes text
+    ///   Ghostty           AXTextArea   NOT settable   takes text
+    ///   Google Chrome     AXTextField  settable       takes text
+    ///   Claude            AXGroup      NOT settable   takes nothing
+    ///
+    /// Two signals had to be thrown out. `selectedTextRange` was true in every
+    /// single reading including the failing one, so it distinguishes nothing —
+    /// containers advertise it happily. `valueSettable` cannot stand alone
+    /// either, because a terminal reports false and pastes perfectly well.
+    ///
+    /// So the role decides, and a settable value is kept only as an escape hatch
+    /// for a custom text engine calling itself something non-standard. An
+    /// earlier version had this backwards: it consulted the role first and then
+    /// fell back to the useless signal, which is how a focused AXGroup was
+    /// treated as a text field and a dictation vanished into it in silence.
+    public static func classify(role: String, valueSettable: Bool) -> EditableFocus {
+        if editableRoles.contains(role) { return .editable }
+        if valueSettable { return .editable }
+        return .notEditable(role: role.isEmpty ? "no role" : role)
+    }
 
     public static func current() -> EditableFocus { probe().focus }
 
@@ -75,11 +87,19 @@ public enum FocusProbe {
         guard AXUIElementCopyAttributeValue(
             system, kAXFocusedUIElementAttribute as CFString, &focusedRef
         ) == .success, let focused = focusedRef as! AXUIElement? else {
-            // Plenty of healthy apps report nothing here. Not evidence of
-            // absence — but which apps say nothing is the whole question, and
-            // this used to drop the one detail that could answer it.
+            // Measured from the signed app, this has never once happened — every
+            // reading carried a real role. An earlier belief that healthy apps
+            // commonly report nothing came from probing with an unsigned helper
+            // that had no real accessibility access, and was simply wrong.
+            //
+            // So nothing focused now means what it says. The cost of being
+            // wrong is the text going to the clipboard with a message on screen,
+            // which beats what it did before: vanishing in silence.
             let app = NSWorkspace.shared.frontmostApplication?.localizedName ?? "?"
-            return FocusReading(focus: .unknown, description: "app=\(app) no focused element")
+            return FocusReading(
+                focus: .notEditable(role: "nothing focused"),
+                description: "app=\(app) no focused element"
+            )
         }
         AXUIElementSetMessagingTimeout(focused, messagingTimeout)
 
@@ -90,20 +110,10 @@ public enum FocusProbe {
         let app = NSWorkspace.shared.frontmostApplication?.localizedName ?? "?"
         let described = "app=\(app) role=\(role) subrole=\(subrole) selectedTextRange=\(range) valueSettable=\(settable)"
 
-        let verdict: EditableFocus
-        if editableRoles.contains(role) {
-            verdict = .editable
-        } else if range || settable {
-            // Role names are not exhaustive — a custom text engine can call
-            // itself anything. Supporting a selected text range is the behaviour
-            // that actually matters, so trust that over the label.
-            verdict = .editable
-        } else if refusingRoles.contains(role) {
-            verdict = .notEditable(role: role)
-        } else {
-            verdict = .unknown
-        }
-        return FocusReading(focus: verdict, description: described)
+        return FocusReading(
+            focus: classify(role: role, valueSettable: settable),
+            description: described
+        )
     }
 
     // MARK: - AX plumbing

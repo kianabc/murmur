@@ -479,39 +479,37 @@ case "focus-selftest":
         if !ok { focusFailures += 1; print("FAIL  \(what)") }
     }
 
-    check("unknown proceeds", EditableFocus.unknown.allowsDictation)
-    check("editable proceeds", EditableFocus.editable.allowsDictation)
-    check("a button is refused", !EditableFocus.notEditable(role: "AXButton").allowsDictation)
-    check("only notEditable is a refusal", EditableFocus.notEditable(role: "AXImage").isRefusal
-          && !EditableFocus.unknown.isRefusal && !EditableFocus.editable.isRefusal)
-
-    // Against the live system. Whatever is focused right now, the one thing that
-    // must never happen is a crash or a hang in the AX plumbing.
-    let live = FocusProbe.current()
-    print("  live probe → \(live)")
-    print("  focused    → \(FocusProbe.probe().description)")
-    check("a probe without accessibility says unknown",
-          AXIsProcessTrusted() || live == .unknown)
-
-    // The fallback is only as trustworthy as the signal it fires on, so the
-    // one thing that must hold is: nothing but an explicit non-text role ever
-    // touches the clipboard.
-    final class Recorder: TextSink {
-        var outcomes: [InsertOutcome] = []
-        var next: InsertOutcome = .typed
-        func insert(_ text: String) throws -> InsertOutcome { outcomes.append(next); return next }
+    // The matrix below is not invented — it is every distinct reading the signed
+    // app recorded in real use, including the one that lost a dictation.
+    func classify(_ role: String, _ settable: Bool, _ want: EditableFocus, _ app: String) {
+        let got = FocusProbe.classify(role: role, valueSettable: settable)
+        if got != want {
+            focusFailures += 1
+            print("FAIL  \(app) \(role) settable=\(settable): got \(got), want \(want)")
+        } else {
+            print("  ok  \(app): \(role) settable=\(settable) → \(got)")
+        }
     }
-    let rec = Recorder()
-    rec.next = .copied(reason: "no text field focused (AXButton)")
-    if case .copied(let why) = try! rec.insert("hello") {
-        check("a copied outcome carries its reason", why.contains("AXButton"))
-    } else {
-        check("a copied outcome carries its reason", false)
-    }
-    rec.next = .typed
-    check("a typed outcome is not a copy", try! rec.insert("hello") == .typed)
-    check("outcomes are distinguishable",
-          InsertOutcome.typed != InsertOutcome.copied(reason: "x"))
+
+    classify("AXTextArea", true, .editable, "Claude / WhatsApp")
+    classify("AXTextArea", false, .editable, "Ghostty")        // terminal: not settable, pastes fine
+    classify("AXTextField", true, .editable, "Google Chrome")
+    classify("AXGroup", false, .notEditable(role: "AXGroup"), "Claude sidebar")  // the one that lost text
+    classify("AXComboBox", false, .editable, "a combo box")
+    classify("AXSearchField", false, .editable, "a search field")
+
+    // Things that plainly take no typing.
+    classify("AXButton", false, .notEditable(role: "AXButton"), "a button")
+    classify("AXImage", false, .notEditable(role: "AXImage"), "an image")
+    classify("AXWindow", false, .notEditable(role: "AXWindow"), "a bare window")
+
+    // A custom text engine under a non-standard role is still allowed through,
+    // on the strength of a settable value.
+    classify("AXMysteryEditor", true, .editable, "a custom editor")
+
+    check("only an explicit refusal blocks", EditableFocus.unknown.allowsDictation
+          && EditableFocus.editable.allowsDictation
+          && !EditableFocus.notEditable(role: "AXGroup").allowsDictation)
 
     print(focusFailures == 0 ? "all focus gate cases pass" : "\(focusFailures) focus gate cases FAILED")
     if focusFailures > 0 { exit(1) }

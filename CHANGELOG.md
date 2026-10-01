@@ -16,16 +16,27 @@ All notable changes are recorded here. Versions follow [semantic versioning](htt
   appearing — so it now checks whether it actually did, and builds a new one when
   it didn't.
 
-## [1.8.1] — 2026-10-01
+## Unreleased
 
-### Changed
-- The short-phrase word count is a menu again — 5, 10, 15, 20 or 30 — instead of
-  a stepper you had to click up one word at a time.
+Not published. Held back until the popup and the clipboard fallback are
+confirmed working in real use rather than only under test.
 
 ### Fixed
-- The last few lines before Murmur quit could be missing from the log, because
-  they were still queued when the process ended. That made an ordinary shutdown
-  look like the app had vanished.
+- **Dictating with the cursor outside a text field lost the text silently.** The
+  check that decides whether there's anywhere to type was trusting a signal that
+  turned out to mean nothing — every app reports it, including the ones that
+  can't accept text. It now goes by what the focused thing actually is, which is
+  what the real readings distinguish on.
+- **Two dictations in a row no longer run together.** A space is added when the
+  cursor sits straight after a word, and not when it would be wrong: inside a
+  bracket or quote, mid hyphenated word, or at the start of a line.
+- **The listening popup disappearing for the rest of a session.** It now checks
+  whether it actually appeared and builds a new one when it didn't.
+- The last lines before Murmur quits are no longer lost from the log, which had
+  made an ordinary shutdown look like the app vanishing.
+
+### Changed
+- The short-phrase word count is a menu again — 5, 10, 15, 20 or 30.
 
 ## [1.8.0] — 2026-10-01
 
