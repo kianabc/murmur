@@ -6,6 +6,7 @@ import MurmurAudio
 import MurmurCleanup
 import MurmurCore
 import MurmurStore
+import MurmurUI
 
 // Dev tool for the transcription + correction pipeline.
 //
@@ -257,6 +258,74 @@ case "seed-usage":
         }
     }
     print("seeded 45 days of usage")
+
+case "hud-selftest":
+    // Where the HUD lands has been wrong twice, in opposite directions, and
+    // both times it was invisible to every other test. It is pure geometry, so
+    // it can simply be pinned.
+    var hudFailures = 0
+    // A 16" display, menu bar excluded.
+    let screenRect = CGRect(x: 0, y: 0, width: 1728, height: 1080 - 38)
+    let panel = CGSize(width: 360, height: 60)
+
+    func place(_ name: String, _ rect: CGRect, _ precision: CaretLocator.Precision,
+               expect: (CGPoint) -> Bool, describe: String) {
+        let origin = DictationHUD.origin(
+            for: CaretLocator.Anchor(rect: rect, precision: precision),
+            size: panel, within: screenRect
+        )
+        let onScreen = origin.x >= screenRect.minX && origin.y >= screenRect.minY
+            && origin.x + panel.width <= screenRect.maxX
+            && origin.y + panel.height <= screenRect.maxY
+        if !onScreen {
+            hudFailures += 1
+            print("FAIL  \(name): off screen at \(origin)")
+        } else if !expect(origin) {
+            hudFailures += 1
+            print("FAIL  \(name): \(origin) — wanted \(describe)")
+        } else {
+            print("  ok  \(name) → (\(Int(origin.x)), \(Int(origin.y)))")
+        }
+    }
+
+    // A real caret: small rect mid-screen. The HUD belongs just under it.
+    place("caret in a document", CGRect(x: 500, y: 600, width: 2, height: 18), .caret,
+          expect: { $0.y < 600 && $0.y > 480 && $0.x == 500 },
+          describe: "just below the caret")
+
+    // A single-line field is still caret-like; below it is right.
+    place("one-line text field", CGRect(x: 300, y: 500, width: 400, height: 28), .element,
+          expect: { $0.y < 500 && $0.y > 400 },
+          describe: "just below the field")
+
+    // Ghostty: the "focused element" is the whole terminal view. This is the
+    // case that pinned the HUD to the top of the screen.
+    place("terminal, full-height element", CGRect(x: 0, y: 0, width: 1728, height: 1042), .element,
+          expect: { $0.y < 200 && abs($0.x - (864 - 180)) < 2 },
+          describe: "low and horizontally centred, NOT at the top")
+
+    // A fullscreen window, the 1.5.0 case, which must stay fixed.
+    place("fullscreen window", CGRect(x: 0, y: 0, width: 1728, height: 1042), .window,
+          expect: { $0.y < 200 },
+          describe: "near the bottom of the window")
+
+    // A tall editor pane in the upper half of the screen.
+    place("tall editor pane", CGRect(x: 200, y: 500, width: 800, height: 500), .element,
+          expect: { $0.y > 500 && $0.y < 700 },
+          describe: "inside the pane, near its bottom")
+
+    // Nothing known: mouse position. Must still be on screen and below it.
+    place("mouse fallback", CGRect(x: 900, y: 700, width: 1, height: 1), .mouse,
+          expect: { $0.y < 700 },
+          describe: "just below the pointer")
+
+    // A caret near the bottom edge has no room below, so it flips above.
+    place("caret at the bottom edge", CGRect(x: 400, y: 20, width: 2, height: 18), .caret,
+          expect: { $0.y >= 20 },
+          describe: "flipped above the caret")
+
+    print(hudFailures == 0 ? "all HUD placements pass" : "\(hudFailures) HUD placements FAILED")
+    if hudFailures > 0 { exit(1) }
 
 case "focus-selftest":
     // A wrong "no" here makes the app look broken while the user stares at a

@@ -22,6 +22,28 @@ public enum CaretLocator {
         /// Screen rect to sit next to, in Cocoa coordinates (origin bottom-left).
         public let rect: CGRect
         public let precision: Precision
+
+        public init(rect: CGRect, precision: Precision) {
+            self.rect = rect
+            self.precision = precision
+        }
+    }
+
+    /// Somewhere sensible to put the HUD *right now*, using nothing that can
+    /// block. Every rung of `locate()` is synchronous cross-process
+    /// accessibility, which is far too slow to sit in front of drawing a panel
+    /// that exists to tell you the microphone is live.
+    public static func immediateAnchor() -> Anchor {
+        if let screen = NSScreen.main {
+            let mouse = NSEvent.mouseLocation
+            if screen.frame.contains(mouse) {
+                return Anchor(
+                    rect: CGRect(x: mouse.x, y: mouse.y, width: 1, height: 1),
+                    precision: .mouse
+                )
+            }
+        }
+        return Anchor(rect: screenFallback(), precision: .screen)
     }
 
     public static func locate() -> Anchor {

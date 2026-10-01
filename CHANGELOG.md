@@ -27,6 +27,18 @@ All notable changes are recorded here. Versions follow [semantic versioning](htt
   which was the one detail needed to widen the list of places Murmur knows it
   can't type into.
 
+### Fixed
+- **The listening popup now appears every time, immediately.** It was waiting on
+  a series of questions to the app you're in before it could draw, so on a short
+  dictation it often never appeared at all — which teaches you to keep talking
+  and hope. It now opens at once and slides to your cursor a moment later.
+- **The popup no longer lands at the top of the screen in terminals and
+  editors.** It was being placed just *outside* whatever the app reported as
+  focused — and in a terminal that's the entire text view, so "just below" fell
+  off the screen and it ended up pinned to the top edge. It now judges by the
+  size of the area rather than its label, and sits inside it, low and centred,
+  when it can't find the actual cursor.
+
 ## [1.6.2] — 2026-08-29
 
 ### Fixed

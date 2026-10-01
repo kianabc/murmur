@@ -61,10 +61,21 @@ public final class DictationHUD {
     private func show(anchor: CaretLocator.Anchor?) {
         if panel == nil { panel = makePanel() }
         guard let panel else { return }
-        position(panel, at: anchor ?? CaretLocator.locate())
+
+        // Never `CaretLocator.locate()` here. The anchor is resolved off this
+        // path precisely because finding the caret is a series of synchronous
+        // cross-process accessibility calls — doing it before ordering the panel
+        // front meant the panel appeared late or, for a short dictation, not at
+        // all. Open somewhere cheap now; `$anchor` moves it when the answer
+        // arrives, a few tens of milliseconds later.
+        let wasVisible = panel.isVisible
+        position(panel, at: anchor ?? CaretLocator.immediateAnchor())
         // A non-activating panel from an accessory app won't come forward with
         // the usual ordering calls.
         panel.orderFrontRegardless()
+        if !wasVisible {
+            Log.echo("hud: shown at \(Int(panel.frame.origin.x)),\(Int(panel.frame.origin.y))")
+        }
     }
 
     private func hide() {
@@ -92,30 +103,55 @@ public final class DictationHUD {
     }
 
     /// Sits just below the caret, nudged back on-screen if that would overflow.
+    /// Taller than any one line of text. Above this the rect is a region — a
+    /// terminal view, a document body, a whole window — not a caret.
+    public static let caretHeightLimit: CGFloat = 120
+
     private func position(_ panel: NSPanel, at anchor: CaretLocator.Anchor) {
+        let screen = NSScreen.screens.first { $0.frame.intersects(anchor.rect) } ?? NSScreen.main
+        panel.setFrameOrigin(Self.origin(
+            for: anchor,
+            size: CGSize(width: Self.width, height: Self.height),
+            within: screen?.visibleFrame
+        ))
+    }
+
+    /// Where the panel goes. Pure geometry, no AppKit state, because this is the
+    /// part that has been wrong twice: once putting the HUD in a screen corner
+    /// for fullscreen windows, once pinning it to the top of the screen in any
+    /// terminal or editor.
+    public static func origin(
+        for anchor: CaretLocator.Anchor,
+        size: CGSize,
+        within visible: CGRect?
+    ) -> CGPoint {
         let rect = anchor.rect
         var x = rect.minX
-        var y = rect.minY - Self.height - Self.gap
+        var y = rect.minY - size.height - gap
 
-        // Knowing only the window is not knowing where the caret is, and placing
-        // the HUD just outside a window-sized rect goes badly: for a fullscreen
-        // window "just below" is off the bottom of the screen, "just above" is
-        // off the top, and the clamp below drops it in a corner — present, but
-        // nowhere near where anyone is looking. Sit inside the window instead,
-        // bottom-centre, which is where macOS puts its own dictation indicator.
-        if anchor.precision == .window {
-            x = rect.midX - Self.width / 2
+        // Judge by the size of the rect, not by which rung produced it. The old
+        // test asked whether the precision was `.window`, which turned out to be
+        // 0 of 968 real anchors — almost everything reports as `.element`, and in
+        // a terminal or an editor that "element" is the entire text view. Placing
+        // the HUD just *outside* a rect that tall sends it off the bottom of the
+        // screen, then off the top when it flips, and the clamp below parks it
+        // against the top edge. That is the "why is it at the top" report.
+        //
+        // When the rect is too big to be a caret we don't know where the caret
+        // is, so sit inside it, bottom-centre — where macOS puts its own
+        // dictation indicator, and near where the text is being entered.
+        if rect.height > caretHeightLimit {
+            x = rect.midX - size.width / 2
             y = rect.minY + 48
         }
 
+        guard let visible else { return CGPoint(x: x, y: y) }
+
         // Above the caret instead, if there's no room below.
-        let screen = NSScreen.screens.first { $0.frame.intersects(rect) } ?? NSScreen.main
-        if let visible = screen?.visibleFrame {
-            if y < visible.minY { y = rect.maxY + Self.gap }
-            x = min(max(x, visible.minX + 8), visible.maxX - Self.width - 8)
-            y = min(max(y, visible.minY + 8), visible.maxY - Self.height - 8)
-        }
-        panel.setFrameOrigin(NSPoint(x: x, y: y))
+        if y < visible.minY { y = rect.maxY + gap }
+        x = min(max(x, visible.minX + 8), visible.maxX - size.width - 8)
+        y = min(max(y, visible.minY + 8), visible.maxY - size.height - 8)
+        return CGPoint(x: x, y: y)
     }
 }
 
