@@ -411,18 +411,17 @@ private struct CleanupTab: View {
 
             if model.cleanupEnabled {
                 Section {
-                    Toggle("Skip it for short phrases", isOn: $model.skipShortPhrases)
+                    Toggle("Skip AI cleanup for short phrases", isOn: $model.skipShortPhrases)
                     if model.skipShortPhrases {
-                        Picker("Short means", selection: $model.skipShortMaxWords) {
-                            ForEach(ShortPhrasePreference.choices, id: \.self) { n in
-                                Text("\(n) words or fewer").tag(n)
-                            }
+                        Stepper(value: $model.skipShortMaxWords,
+                                in: ShortPhrasePreference.range) {
+                            Text("Short means **\(model.skipShortMaxWords) words** or fewer")
                         }
                     }
                 } footer: {
                     Text(model.skipShortPhrases
-                         ? "“Change it to 15” has nothing in it for a model to fix, so it goes straight through — no wait, no cost. Longer dictations are still cleaned up."
-                         : "Every dictation is sent, however short.")
+                         ? "A phrase this short has little in it for a model to fix, so it goes straight through — no wait, no cost. Anything longer is still cleaned up."
+                         : "Every dictation is sent to the AI, however short.")
                         .font(.caption).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }

@@ -392,6 +392,13 @@ case "shortphrase-selftest":
     // Exactly at the threshold still counts as short; one past it does not.
     want("one two three four five six", 6, true)
     want("one two three four five six seven", 7, false)
+    // The shipped default, pinned so a change to it is a deliberate act.
+    want("one two three four five six seven eight nine ten", 10, true,
+         max: ShortPhrasePreference.defaultMaxWords)
+    want("one two three four five six seven eight nine ten eleven", 11, false,
+         max: ShortPhrasePreference.defaultMaxWords)
+    want("change the date to the fifteenth of next month", 9, true,
+         max: ShortPhrasePreference.defaultMaxWords)
     want("I'm trying to ride my motorcycle to work today", 9, false)
     // Hyphens and contractions are single words, not two.
     want("it's a well-known problem", 4, true)
@@ -410,11 +417,30 @@ case "shortphrase-selftest":
         shortFailures += 1
         print("FAIL  did not skip a short phrase while switched on")
     }
-    if ShortPhrasePreference.shouldSkip("I'm trying to ride my motorcycle to work today") {
+    // Comfortably past the default, so this stays a sentence whatever the
+    // threshold is tuned to next.
+    if ShortPhrasePreference.shouldSkip(
+        "I'm trying to ride my motorcycle to work today because the weather is finally good"
+    ) {
         shortFailures += 1
         print("FAIL  skipped a full sentence")
     }
     ShortPhrasePreference.isEnabled = remembered
+
+    // A stored value from an older build must not be able to switch cleanup off
+    // for everything, or turn the feature into a no-op.
+    let maxBefore = ShortPhrasePreference.maxWords
+    ShortPhrasePreference.maxWords = 9999
+    if ShortPhrasePreference.maxWords > ShortPhrasePreference.range.upperBound {
+        shortFailures += 1
+        print("FAIL  an absurd stored threshold was not clamped")
+    }
+    ShortPhrasePreference.maxWords = 0
+    if ShortPhrasePreference.maxWords < ShortPhrasePreference.range.lowerBound {
+        shortFailures += 1
+        print("FAIL  a zero stored threshold was not clamped")
+    }
+    ShortPhrasePreference.maxWords = maxBefore
 
     print(shortFailures == 0 ? "all short phrase cases pass" : "\(shortFailures) short phrase cases FAILED")
     if shortFailures > 0 { exit(1) }

@@ -39,6 +39,12 @@ All notable changes are recorded here. Versions follow [semantic versioning](htt
   size of the area rather than its label, and sits inside it, low and centred,
   when it can't find the actual cursor.
 
+### Changed
+- **Short phrases now mean ten words or fewer, up from six**, and the threshold
+  is a proper setting under AI Cleanup — step it anywhere from 2 to 30 words
+  instead of picking from a short list. Six was too eager: it was sending 94
+  real dictations straight through without cleanup.
+
 ## [1.6.2] — 2026-08-29
 
 ### Fixed

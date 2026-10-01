@@ -29,12 +29,15 @@ public enum ShortPhrasePreference {
     private static let enabledKey = "com.torimi.murmur.cleanup.skipShort"
     private static let maxWordsKey = "com.torimi.murmur.cleanup.skipShortMaxWords"
 
-    /// Offered in the UI, in words.
-    public static let choices = [3, 6, 10, 15]
+    /// What the stepper allows. Below two there is nothing a model could fix;
+    /// above thirty you are no longer describing a short phrase.
+    public static let range = 2...30
 
-    /// Six covers "change it to 15" and "remind me tomorrow morning" while
-    /// leaving anything sentence-shaped to the model.
-    public static let defaultMaxWords = 6
+    /// Ten covers a whole short instruction — "change the date to the fifteenth
+    /// of next month" — not just a fragment, while still leaving anything
+    /// sentence-shaped to the model. Six turned out to be too eager: it was
+    /// skipping the cleanup on 94 real dictations.
+    public static let defaultMaxWords = 10
 
     public static var isEnabled: Bool {
         get { UserDefaults.standard.object(forKey: enabledKey) as? Bool ?? true }
@@ -42,7 +45,12 @@ public enum ShortPhrasePreference {
     }
 
     public static var maxWords: Int {
-        get { UserDefaults.standard.object(forKey: maxWordsKey) as? Int ?? defaultMaxWords }
+        // Clamped on read: a stored value from an older build, or a hand-edited
+        // one, must not be able to disable cleanup entirely.
+        get {
+            let stored = UserDefaults.standard.object(forKey: maxWordsKey) as? Int ?? defaultMaxWords
+            return min(max(stored, range.lowerBound), range.upperBound)
+        }
         set { UserDefaults.standard.set(newValue, forKey: maxWordsKey) }
     }
 
