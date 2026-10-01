@@ -27,8 +27,25 @@ die()  { printf '\033[31merror:\033[0m %s\n' "$1" >&2; exit 1; }
 security find-identity -v -p codesigning 2>/dev/null | grep -q "Developer ID Application" \
   || die "no Developer ID Application certificate. See DISTRIBUTION.md step 1."
 
-xcrun notarytool history --keychain-profile "$PROFILE" >/dev/null 2>&1 \
-  || die "no notarytool profile '$PROFILE'. See DISTRIBUTION.md step 2."
+# Any failure here used to be reported as a missing profile, which sent you to
+# re-create credentials that were working fine. Apple's own message says what is
+# actually wrong — an expired agreement, a revoked key, no network — so show it.
+if ! NOTARY_CHECK="$(xcrun notarytool history --keychain-profile "$PROFILE" 2>&1)"; then
+  case "$NOTARY_CHECK" in
+    *"required agreement"*|*"403"*)
+      die "Apple is refusing the account: a developer agreement needs accepting.
+     Sign in at https://developer.apple.com/account and accept the pending
+     agreement, then run this again. Your credentials are fine — this is 403,
+     not 401.
+     Apple said: $NOTARY_CHECK" ;;
+    *"401"*|*"Unauthorized"*)
+      die "notarytool profile '$PROFILE' was rejected. Re-create it — see DISTRIBUTION.md step 2.
+     Apple said: $NOTARY_CHECK" ;;
+    *)
+      die "notarytool could not reach Apple with profile '$PROFILE'.
+     Apple said: $NOTARY_CHECK" ;;
+  esac
+fi
 
 # --- build -------------------------------------------------------------------
 
