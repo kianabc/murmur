@@ -13,6 +13,10 @@ public final class MenuBarController {
     private var cancellables = Set<AnyCancellable>()
 
     public var onShowSettings: (() -> Void)?
+    public var onInstallUpdate: ((AvailableUpdate) -> Void)?
+
+    public var availableUpdate: AvailableUpdate? { didSet { rebuildMenu() } }
+    public var isInstallingUpdate = false { didSet { rebuildMenu() } }
 
     public init(controller: DictationController) {
         self.controller = controller
@@ -129,6 +133,22 @@ public final class MenuBarController {
 
         menu.addItem(.separator())
 
+        if isInstallingUpdate {
+            let item = NSMenuItem(title: "Updating…", action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            menu.addItem(item)
+            menu.addItem(.separator())
+        } else if let update = availableUpdate {
+            let item = NSMenuItem(
+                title: "Update to \(update.version)…",
+                action: #selector(installUpdate),
+                keyEquivalent: ""
+            )
+            item.target = self
+            menu.addItem(item)
+            menu.addItem(.separator())
+        }
+
         let fix = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
         fix.target = self
         menu.addItem(fix)
@@ -164,6 +184,11 @@ public final class MenuBarController {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
         Log.echo("copied last transcript (\(text.count) chars) on request")
+    }
+
+    @objc private func installUpdate() {
+        guard let update = availableUpdate else { return }
+        onInstallUpdate?(update)
     }
 
     @objc private func showSettings() {

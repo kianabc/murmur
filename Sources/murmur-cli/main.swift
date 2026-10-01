@@ -259,6 +259,76 @@ case "seed-usage":
     }
     print("seeded 45 days of usage")
 
+case "updater-selftest":
+    // The updater fetches something from the internet and replaces an app that
+    // already holds Accessibility, Input Monitoring and the microphone. Its
+    // checks are the security model, so they are exercised against real
+    // bundles, including one that is perfectly valid but belongs to Apple.
+    var updFailures = 0
+    let updater = Updater(currentVersion: "0.0.1")
+
+    func mustReject(_ app: URL, _ what: String) async {
+        guard FileManager.default.fileExists(atPath: app.path) else {
+            print("  skip \(what) — not present"); return
+        }
+        do {
+            try await updater.verifyForInstall(app)
+            updFailures += 1
+            print("FAIL  accepted \(what)")
+        } catch {
+            print("  ok  refused \(what) — \(error.localizedDescription)")
+        }
+    }
+
+    // Apple's own, notarised and signed, and emphatically not ours. A check
+    // that only asked "is this validly signed?" would wave this through.
+    await mustReject(URL(fileURLWithPath: "/System/Applications/Calculator.app"),
+                     "a valid Apple-signed app from another team")
+
+    let ourBuild = URL(fileURLWithPath: "build/Murmur.app")
+    if FileManager.default.fileExists(atPath: ourBuild.path) {
+        // Our real build, against an older "current" version: must pass.
+        do {
+            try await updater.verifyForInstall(ourBuild)
+            print("  ok  accepted our own notarised build")
+        } catch {
+            updFailures += 1
+            print("FAIL  refused our own build — \(error.localizedDescription)")
+        }
+
+        // The same build, with one byte changed. codesign must catch it.
+        let tampered = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("murmur-tampered-\(UUID().uuidString).app")
+        if (try? FileManager.default.copyItem(at: ourBuild, to: tampered)) != nil {
+            let victim = tampered.appendingPathComponent("Contents/Resources/Assets.car")
+            let target = FileManager.default.fileExists(atPath: victim.path)
+                ? victim : tampered.appendingPathComponent("Contents/Info.plist")
+            if let handle = try? FileHandle(forWritingTo: target) {
+                try? handle.seek(toOffset: 8)
+                try? handle.write(contentsOf: Data([0x42]))
+                try? handle.close()
+            }
+            await mustReject(tampered, "our own build with a byte changed")
+            try? FileManager.default.removeItem(at: tampered)
+        }
+
+        // A downgrade must not be installable — otherwise a fixed bug can be
+        // reintroduced by replaying an old release.
+        let newer = Updater(currentVersion: "99.0.0")
+        do {
+            try await newer.verifyForInstall(ourBuild)
+            updFailures += 1
+            print("FAIL  accepted a downgrade")
+        } catch {
+            print("  ok  refused a downgrade — \(error.localizedDescription)")
+        }
+    } else {
+        print("  skip our own build — run scripts/build-app.sh first")
+    }
+
+    print(updFailures == 0 ? "updater refuses everything it should" : "\(updFailures) updater cases FAILED")
+    if updFailures > 0 { exit(1) }
+
 case "hud-selftest":
     // Where the HUD lands has been wrong twice, in opposite directions, and
     // both times it was invisible to every other test. It is pure geometry, so

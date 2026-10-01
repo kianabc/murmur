@@ -111,6 +111,7 @@ public final class SettingsModel: ObservableObject {
     private let permissions = Permissions()
     private var promptedAccessibility = false
     var onHotkeyChange: ((Hotkey) -> Void)?
+    var onInstallUpdate: ((AvailableUpdate) -> Void)?
     /// Switching to always-open should take effect now, not at the next launch.
     var onMicPolicyChange: ((MicrophonePolicy) -> Void)?
 
@@ -629,7 +630,11 @@ private struct AboutTab: View {
                     .disabled(model.checkingForUpdate)
 
                     if let update = model.availableUpdate {
-                        Link("Download \(update.version.description)", destination: update.pageURL)
+                        Button("Update to \(update.version.description) and Restart") {
+                            model.onInstallUpdate?(update)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        Link("Release notes", destination: update.pageURL)
                     }
                 }
 
@@ -639,7 +644,7 @@ private struct AboutTab: View {
             } header: {
                 Text("Updates")
             } footer: {
-                Text("Checks GitHub for a newer release once a day. Murmur tells you and opens the download page — it never installs anything on its own.")
+                Text("Checks GitHub for a newer release once a day. Murmur installs an update only when you ask, and only after checking it was signed by the same developer and notarised by Apple — the same bar macOS applies to running the app at all.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
@@ -780,6 +785,7 @@ public final class SettingsWindowController {
     /// Applied immediately, so turning the microphone back on doesn't wait for a
     /// relaunch — and turning it off releases it at once.
     public var onMicPolicyChange: ((MicrophonePolicy) -> Void)?
+    public var onInstallUpdate: ((AvailableUpdate) -> Void)?
 
     /// Built on first `show()`, never at launch. `SettingsModel.init` reads the
     /// API key from the Keychain, and a Keychain read can raise a modal prompt —
@@ -791,6 +797,7 @@ public final class SettingsWindowController {
         let created = SettingsModel(store: store, usage: usage, hotkey: initialHotkey)
         created.onHotkeyChange = onHotkeyChange
         created.onMicPolicyChange = { [weak self] policy in self?.onMicPolicyChange?(policy) }
+        created.onInstallUpdate = { [weak self] update in self?.onInstallUpdate?(update) }
         _model = created
         return created
     }

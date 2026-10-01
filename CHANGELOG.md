@@ -3,6 +3,23 @@
 All notable changes are recorded here. Versions follow [semantic versioning](https://semver.org):
 `MAJOR.MINOR.PATCH` — patch for fixes, minor for features, major for breaking changes.
 
+## [1.8.0] — 2026-10-01
+
+### Added
+- **Murmur updates itself.** When a new version appears it asks, and if you say
+  yes it downloads, verifies and restarts into the new one. No disk image to
+  mount, no dragging, no re-granting permissions.
+- Before anything is installed, Murmur checks the download was signed by the
+  same developer as the copy you're running and notarised by Apple, and that it
+  is actually newer. A validly signed app belonging to someone else is refused,
+  as is a tampered one, and so is a downgrade.
+- The update offer is also on the menu bar and in Settings → About, so a check
+  you dismissed isn't lost.
+
+### Fixed
+- An available update was written to the log and nowhere else, so unless you
+  went looking in Settings you were never told one existed.
+
 ## [1.7.0] — 2026-10-01
 
 ### Added

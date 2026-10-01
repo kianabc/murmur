@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var controller: DictationController!
     private var menuBar: MenuBarController!
     private var speechEngine: SpeechAnalyzerEngine?
+    private var isInstallingUpdate = false
     private let permissions = Permissions()
     private var correctionStore: CorrectionStore?
     private var usageStore: UsageStore?
@@ -155,6 +156,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         menuBar = MenuBarController(controller: controller)
+        menuBar.onInstallUpdate = { [weak self] update in self?.offerUpdate(update) }
+        settings?.onInstallUpdate = { [weak self] update in self?.offerUpdate(update) }
         menuBar.onShowSettings = { [weak self] in
             guard let self else { return }
             // Show the raw transcript, not the corrected one — that's the text
@@ -280,11 +283,69 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task {
             do {
                 if let update = try await UpdateChecker().check() {
+                    // Writing it to a log file nobody opens is not telling
+                    // anyone. This is why updates were being installed by hand.
                     Log.echo("update available: \(update.version)")
-                } 
+                    menuBar.availableUpdate = update
+                    offerUpdate(update)
+                }
                 UpdatePreference.lastChecked = Date()
             } catch {
                 Log.echo("update check failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Asks, then does the whole thing. The user's part is one button.
+    @MainActor
+    func offerUpdate(_ update: AvailableUpdate) {
+        guard !isInstallingUpdate else { return }
+
+        let alert = NSAlert()
+        alert.messageText = "Murmur \(update.version) is available"
+        alert.informativeText = String(update.releaseNotes.prefix(600))
+        alert.addButton(withTitle: "Update and Restart")
+        alert.addButton(withTitle: "Later")
+        // An accessory app has no windows to attach this to and won't come
+        // forward on its own.
+        NSApp.activate()
+        guard alert.runModal() == .alertFirstButtonReturn else {
+            Log.echo("update: declined for now")
+            return
+        }
+        installUpdate(update)
+    }
+
+    @MainActor
+    private func installUpdate(_ update: AvailableUpdate) {
+        isInstallingUpdate = true
+        menuBar.isInstallingUpdate = true
+        Task {
+            do {
+                let staged = try await Updater().stage(update)
+                // Replaces the app and relaunches it; this process does not
+                // return from here.
+                try Updater.relaunch(with: staged)
+            } catch {
+                isInstallingUpdate = false
+                menuBar.isInstallingUpdate = false
+                Log.echo("update FAILED: \(error.localizedDescription)")
+
+                let failed = NSAlert()
+                failed.alertStyle = .warning
+                failed.messageText = "Couldn't install the update"
+                failed.informativeText = """
+                \(error.localizedDescription)
+
+                Murmur is still running and unchanged. You can download it                 yourself from the releases page.
+                """
+                failed.addButton(withTitle: "Open Releases Page")
+                failed.addButton(withTitle: "Cancel")
+                NSApp.activate()
+                if failed.runModal() == .alertFirstButtonReturn,
+                   let safe = UpdateChecker.trusted(update.pageURL) {
+                    NSWorkspace.shared.open(safe)
+                }
             }
         }
     }
