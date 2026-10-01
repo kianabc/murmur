@@ -70,11 +70,34 @@ public final class DictationHUD {
         // arrives, a few tens of milliseconds later.
         let wasVisible = panel.isVisible
         position(panel, at: anchor ?? CaretLocator.immediateAnchor())
+        // Re-asserted every time rather than only at construction. A panel that
+        // has been up for hours, across space switches and activation-policy
+        // changes, can quietly lose these, and then ordering it front does
+        // nothing you can see.
+        panel.level = .floating
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         // A non-activating panel from an accessory app won't come forward with
         // the usual ordering calls.
         panel.orderFrontRegardless()
-        if !wasVisible {
-            Log.echo("hud: shown at \(Int(panel.frame.origin.x)),\(Int(panel.frame.origin.y))")
+
+        // Ordering front is a request, not a result. When it doesn't take, the
+        // panel is unrecoverable and the only fix is a new one — the same
+        // "watch the symptom" rule the audio engine already follows, because
+        // enumerating the causes has not worked twice now.
+        if !panel.isVisible {
+            Log.echo("hud: panel would not show — rebuilding it")
+            panel.orderOut(nil)
+            let fresh = makePanel()
+            self.panel = fresh
+            position(fresh, at: anchor ?? CaretLocator.immediateAnchor())
+            fresh.orderFrontRegardless()
+        }
+
+        if !wasVisible, let shown = self.panel {
+            Log.echo(
+                "hud: shown at \(Int(shown.frame.origin.x)),\(Int(shown.frame.origin.y))"
+                + " visible=\(shown.isVisible) onScreen=\(shown.occlusionState.contains(.visible))"
+            )
         }
     }
 

@@ -43,6 +43,53 @@ public final class PasteboardSink: TextSink {
 
     private static let axTimeout: Float = 0.15
 
+    /// Whether to put a space in front of what we're about to insert.
+    ///
+    /// Two dictations in a row used to run straight together — "…back to
+    /// back.You can see it here." — because each insertion knows nothing about
+    /// what came before it. Pure, so the judgement can be tested without a text
+    /// field; `precedingCharacter()` supplies the input.
+    public static func needsLeadingSpace(after previous: Character?, inserting text: String) -> Bool {
+        guard let first = text.first, !first.isWhitespace else { return false }
+        // Nothing before us, or we couldn't find out: add nothing. A missing
+        // space is a smaller problem than one at the start of an empty field.
+        guard let previous else { return false }
+        if previous.isWhitespace || previous.isNewline { return false }
+        // Things you write *against*, with no space: an open bracket, an open
+        // quote, a hyphen mid-word.
+        if "([{<\"'“‘-–—/".contains(previous) { return false }
+        return true
+    }
+
+    /// The single character immediately before the insertion point, or nil when
+    /// the app doesn't say.
+    private static func precedingCharacter() -> Character? {
+        guard AXIsProcessTrusted() else { return nil }
+        let system = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(system, axTimeout)
+
+        var focusedRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            system, kAXFocusedUIElementAttribute as CFString, &focusedRef
+        ) == .success, let focused = focusedRef as! AXUIElement? else { return nil }
+        AXUIElementSetMessagingTimeout(focused, axTimeout)
+
+        var rangeRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            focused, kAXSelectedTextRangeAttribute as CFString, &rangeRef
+        ) == .success, let value = rangeRef as! AXValue? else { return nil }
+        var caret = CFRange()
+        guard AXValueGetValue(value, .cfRange, &caret), caret.location > 0 else { return nil }
+
+        var query = CFRange(location: caret.location - 1, length: 1)
+        guard let queryValue = AXValueCreate(.cfRange, &query) else { return nil }
+        var textRef: CFTypeRef?
+        guard AXUIElementCopyParameterizedAttributeValue(
+            focused, kAXStringForRangeParameterizedAttribute as CFString, queryValue, &textRef
+        ) == .success, let preceding = textRef as? String else { return nil }
+        return preceding.last
+    }
+
     private static func fieldState() -> FieldState? {
         guard AXIsProcessTrusted() else { return nil }
         let system = AXUIElementCreateSystemWide()
@@ -108,11 +155,17 @@ public final class PasteboardSink: TextSink {
         // against what apps actually report, rather than what they ought to.
         Log.echo("insert: focus \(focus.description)")
 
+        let previous = Self.precedingCharacter()
+        let payload = Self.needsLeadingSpace(after: previous, inserting: text)
+            ? " " + text
+            : text
+        if payload != text { Log.echo("insert: added a leading space after “\(previous.map(String.init) ?? "")”") }
+
         let pasteboard = NSPasteboard.general
         let saved = Self.snapshot(pasteboard)
 
         pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
+        pasteboard.setString(payload, forType: .string)
         let ourChangeCount = pasteboard.changeCount
 
         // Sampled before the paste so it can be compared with after. Nil means

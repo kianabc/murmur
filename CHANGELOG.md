@@ -3,6 +3,19 @@
 All notable changes are recorded here. Versions follow [semantic versioning](https://semver.org):
 `MAJOR.MINOR.PATCH` — patch for fixes, minor for features, major for breaking changes.
 
+## [1.8.2] — 2026-10-01
+
+### Fixed
+- **Two dictations in a row no longer run together.** Stopping and starting again
+  used to join the sentences with no gap — "back to back.You can see it here."
+  Murmur now adds a space when the cursor is sitting straight after a word, and
+  doesn't when it would be wrong: inside a bracket or quote, mid hyphenated word,
+  or at the start of a line.
+- **The listening popup disappearing for the rest of the session.** It was being
+  placed and asked to come forward every time, correctly, and simply wasn't
+  appearing — so it now checks whether it actually did, and builds a new one when
+  it didn't.
+
 ## [1.8.1] — 2026-10-01
 
 ### Changed

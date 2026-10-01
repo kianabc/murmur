@@ -259,6 +259,40 @@ case "seed-usage":
     }
     print("seeded 45 days of usage")
 
+case "spacing-selftest":
+    // Two dictations in a row used to run together: "…back to back.You can see
+    // it here." Adding a space is easy; adding it in the wrong place is the
+    // risk, so every judgement is pinned.
+    var spaceFailures = 0
+    func spacing(_ previous: Character?, _ text: String, _ want: Bool, _ what: String) {
+        let got = PasteboardSink.needsLeadingSpace(after: previous, inserting: text)
+        if got != want {
+            spaceFailures += 1
+            print("FAIL  \(what): got \(got), want \(want)")
+        } else {
+            print("  ok  \(what)")
+        }
+    }
+
+    spacing(".", "You can see it here.", true, "after a full stop")
+    spacing("k", "And here.", true, "after a letter — mid-sentence continuation")
+    spacing("?", "Yes.", true, "after a question mark")
+    spacing(",", "and then this", true, "after a comma")
+
+    // The ones where a space would be wrong.
+    spacing(nil, "Hello.", false, "an empty field says nothing")
+    spacing(" ", "Hello.", false, "already a space there")
+    spacing("\n", "Hello.", false, "start of a new line")
+    spacing("(", "like this", false, "just inside an open bracket")
+    spacing("\"", "quoted", false, "just inside an open quote")
+    spacing("-", "hyphenated", false, "mid hyphenated word")
+    spacing("/", "path", false, "after a slash")
+    spacing(".", " already spaced", false, "our own text already starts with one")
+    spacing(".", "", false, "nothing to insert")
+
+    print(spaceFailures == 0 ? "all spacing cases pass" : "\(spaceFailures) spacing cases FAILED")
+    if spaceFailures > 0 { exit(1) }
+
 case "diagnostics-selftest":
     // The whole point of this is to speak up after a bad exit, and it had never
     // once fired on a real machine. A detection that only writes to a file it
