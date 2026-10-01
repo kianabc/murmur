@@ -15,17 +15,16 @@ All notable changes are recorded here. Versions follow [semantic versioning](htt
   with your words gone.
 
 ### Changed
+- **Short phrases now mean ten words or fewer, up from six**, and the threshold
+  is a proper setting under AI Cleanup — step it anywhere from 2 to 30 words
+  instead of picking from a short list. Six was too eager: it was sending 94
+  real dictations straight through without cleanup.
 - **Murmur no longer refuses to start when it can't find a text field.** Throwing
   away the dictation is worse than recording it and handing it back on the
   clipboard, so it records. The old behaviour is still available under
   General → Text output.
 - The on-screen message after a dictation you have to act on now stays up for
   five seconds rather than two — long enough to read it and press ⌘V.
-
-### Fixed
-- Diagnostics recorded "no focused element" without saying which app said it,
-  which was the one detail needed to widen the list of places Murmur knows it
-  can't type into.
 
 ### Fixed
 - **The listening popup now appears every time, immediately.** It was waiting on
@@ -38,12 +37,9 @@ All notable changes are recorded here. Versions follow [semantic versioning](htt
   off the screen and it ended up pinned to the top edge. It now judges by the
   size of the area rather than its label, and sits inside it, low and centred,
   when it can't find the actual cursor.
-
-### Changed
-- **Short phrases now mean ten words or fewer, up from six**, and the threshold
-  is a proper setting under AI Cleanup — step it anywhere from 2 to 30 words
-  instead of picking from a short list. Six was too eager: it was sending 94
-  real dictations straight through without cleanup.
+- Diagnostics recorded "no focused element" without saying which app said it,
+  which was the one detail needed to widen the list of places Murmur knows it
+  can't type into.
 
 ## [1.6.2] — 2026-08-29
 
