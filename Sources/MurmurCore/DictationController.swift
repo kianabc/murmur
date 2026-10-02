@@ -291,9 +291,16 @@ public final class DictationController: ObservableObject {
     /// Longer for anything the user has to act on — two seconds is enough to
     /// notice a message but not enough to read one and do what it says.
     private func resetSoon(after seconds: Double = 2) {
+        // Only the most recent message may clear itself. Without this, the
+        // timer from an earlier, shorter message wipes a later one early — a
+        // five-second "press ⌘V" cut down to one.
+        resetGeneration &+= 1
+        let generation = resetGeneration
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(seconds))
+            guard generation == resetGeneration else { return }
             if case .failed = state { state = .idle }
         }
     }
+    private var resetGeneration: UInt64 = 0
 }

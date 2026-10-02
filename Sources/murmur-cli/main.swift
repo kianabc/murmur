@@ -259,6 +259,79 @@ case "seed-usage":
     }
     print("seeded 45 days of usage")
 
+case "probe":
+    // What the focus probe says right now, for whatever has keyboard focus.
+    let reading = FocusProbe.probe()
+    print("verdict: \(reading.focus)")
+    print("saw:     \(reading.description)")
+
+case "fallback-selftest":
+    // The whole clipboard-fallback path, driven through the real controller
+    // with only the microphone and the paste faked: if the sink says "copied",
+    // does the user get told, for long enough, without being locked out?
+    final class FakeEngine: DictationEngine {
+        var onPartial: ((String) -> Void)?
+        var onLevel: ((Float) -> Void)?
+        func beginCapture() throws {}
+        func cancelCapture() {}
+        func finishCapture() async throws -> String { "remind me to call the vendor" }
+    }
+    final class FakeSink: TextSink {
+        var outcome: InsertOutcome = .typed
+        var received: [String] = []
+        func insert(_ text: String) throws -> InsertOutcome { received.append(text); return outcome }
+    }
+    struct Boom: LocalizedError { var errorDescription: String? { "boom" } }
+    final class ThrowingSink: TextSink {
+        func insert(_ text: String) throws -> InsertOutcome { throw Boom() }
+    }
+
+    var fbFailures = 0
+    func fb(_ ok: Bool, _ what: String) {
+        if ok { print("  ok  \(what)") } else { fbFailures += 1; print("FAIL  \(what)") }
+    }
+    func spin(_ seconds: Double) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
+    func message(_ c: DictationController) -> String? {
+        if case .failed(let m) = c.state { return m }
+        return nil
+    }
+    func isIdle(_ c: DictationController) -> Bool { if case .idle = c.state { return true }; return false }
+    func isRecording(_ c: DictationController) -> Bool { if case .recording = c.state { return true }; return false }
+
+    // 1. Nowhere to type: the sink reports it copied instead.
+    let sink = FakeSink()
+    sink.outcome = .copied(reason: "no text field focused (AXGroup)")
+    let controller = DictationController(engine: FakeEngine(), sink: sink)
+    controller.startManual()
+    spin(0.2)
+    fb(isRecording(controller), "dictation starts")
+    controller.stopManual()
+    spin(0.5)
+    fb(sink.received == ["remind me to call the vendor"], "the sink was handed the transcript")
+    fb(message(controller) == "Couldn't type that — copied. Press ⌘V", "the on-screen message is raised")
+    fb(controller.lastTranscript == "remind me to call the vendor", "the transcript is kept for Copy It Again")
+    spin(2.5)
+    fb(message(controller) != nil, "the message is still up after 3 seconds (not the old 2)")
+
+    // 2. It must not lock the user out while it is showing.
+    controller.startManual()
+    spin(0.2)
+    fb(isRecording(controller), "a new dictation starts while the message is up")
+    sink.outcome = .typed
+    controller.stopManual()
+    spin(0.5)
+    fb(isIdle(controller), "a normal paste ends quietly, no message")
+    spin(3.0)
+    fb(isIdle(controller), "the earlier message's timer does not disturb the later state")
+
+    // 3. A sink that fails outright still says something.
+    let broken = DictationController(engine: FakeEngine(), sink: ThrowingSink())
+    broken.startManual(); spin(0.2); broken.stopManual(); spin(0.5)
+    fb(message(broken) == "boom", "an outright insert failure is reported, not swallowed")
+
+    print(fbFailures == 0 ? "the fallback tells the user, every time" : "\(fbFailures) fallback cases FAILED")
+    if fbFailures > 0 { exit(1) }
+
 case "spacing-selftest":
     // Two dictations in a row used to run together: "…back to back.You can see
     // it here." Adding a space is easy; adding it in the wrong place is the

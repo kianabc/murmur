@@ -84,21 +84,30 @@ public enum FocusProbe {
         AXUIElementSetMessagingTimeout(system, messagingTimeout)
 
         var focusedRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(
+        let status = AXUIElementCopyAttributeValue(
             system, kAXFocusedUIElementAttribute as CFString, &focusedRef
-        ) == .success, let focused = focusedRef as! AXUIElement? else {
-            // Measured from the signed app, this has never once happened — every
-            // reading carried a real role. An earlier belief that healthy apps
-            // commonly report nothing came from probing with an unsigned helper
-            // that had no real accessibility access, and was simply wrong.
-            //
-            // So nothing focused now means what it says. The cost of being
-            // wrong is the text going to the clipboard with a message on screen,
-            // which beats what it did before: vanishing in silence.
+        )
+        guard status == .success, let focused = focusedRef as! AXUIElement? else {
             let app = NSWorkspace.shared.frontmostApplication?.localizedName ?? "?"
+            // Two very different failures arrive here and must not be confused.
+            //
+            // `.noValue` is the system answering: nothing has keyboard focus.
+            // That is a real "nowhere to type", and the text goes to the
+            // clipboard with a message.
+            //
+            // Anything else — a timeout above all — is the app failing to
+            // answer in time. That says nothing about where the cursor is, and
+            // treating a busy app as an empty one would divert a perfectly good
+            // paste to the clipboard. Silence is `unknown`, and unknown pastes.
+            if status == .noValue {
+                return FocusReading(
+                    focus: .notEditable(role: "nothing focused"),
+                    description: "app=\(app) nothing focused"
+                )
+            }
             return FocusReading(
-                focus: .notEditable(role: "nothing focused"),
-                description: "app=\(app) no focused element"
+                focus: .unknown,
+                description: "app=\(app) no answer (AXError \(status.rawValue))"
             )
         }
         AXUIElementSetMessagingTimeout(focused, messagingTimeout)
