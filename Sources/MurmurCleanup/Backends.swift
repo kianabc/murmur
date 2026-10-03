@@ -133,3 +133,57 @@ struct OpenAIBackend: CleanupBackend {
         )
     }
 }
+
+// MARK: - Google Gemini
+
+struct GeminiBackend: CleanupBackend {
+    let provider = CleanupProvider.gemini
+
+    func send(
+        prompt: CleanupPrompt, model: CleanupModelSpec, key: String, session: URLSession
+    ) async throws -> RawCompletion {
+        var generation: [String: Any] = [
+            "responseMimeType": "application/json",
+            // Gemini's schema dialect: upper-case type names, no additionalProperties.
+            "responseSchema": [
+                "type": "OBJECT",
+                "properties": ["cleaned": ["type": "STRING"]],
+                "required": ["cleaned"],
+            ],
+        ]
+        // Flash models think by default and can be told not to; Pro refuses a
+        // budget of zero, so it is left to its minimum.
+        if !model.id.contains("pro") {
+            generation["thinkingConfig"] = ["thinkingBudget": 0]
+        }
+        let body: [String: Any] = [
+            "systemInstruction": ["parts": [["text": prompt.system]]],
+            "contents": [["role": "user", "parts": [["text": prompt.user]]]],
+            "generationConfig": generation,
+        ]
+
+        let json = try await post(
+            URL(string: "https://generativelanguage.googleapis.com/v1beta/models/\(model.id):generateContent")!,
+            body: body,
+            headers: ["x-goog-api-key": key],
+            session: session
+        )
+
+        let candidates = json["candidates"] as? [[String: Any]] ?? []
+        let parts = (candidates.first?["content"] as? [String: Any])?["parts"] as? [[String: Any]] ?? []
+        let text = parts.compactMap { $0["text"] as? String }.joined()
+
+        // promptTokenCount is the total prompt, cached portion broken out, like
+        // OpenAI. Thinking tokens are billed as output and reported separately.
+        let usage = json["usageMetadata"] as? [String: Any] ?? [:]
+        let promptTokens = usage["promptTokenCount"] as? Int ?? 0
+        let cached = usage["cachedContentTokenCount"] as? Int ?? 0
+        let output = (usage["candidatesTokenCount"] as? Int ?? 0) + (usage["thoughtsTokenCount"] as? Int ?? 0)
+        return RawCompletion(
+            text: text,
+            inputTokens: max(0, promptTokens - cached),
+            outputTokens: output,
+            cacheReadTokens: cached
+        )
+    }
+}

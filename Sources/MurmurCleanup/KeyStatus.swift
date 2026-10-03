@@ -102,7 +102,9 @@ public extension CleanupService {
             case 200:
                 KeyStatusStore.markValid(provider)
                 return KeyCheck(isValid: true, message: "Key works")
-            case 401, 403:
+            case let code where CleanupProvider.isKeyRejection(
+                status: code, body: String(data: data, encoding: .utf8) ?? ""
+            ):
                 let reason = Self.reason(from: data) ?? "Key was rejected"
                 KeyStatusStore.markRejected(provider, reason: reason)
                 return KeyCheck(isValid: false, message: reason)
@@ -132,11 +134,25 @@ public extension CleanupService {
 }
 
 extension CleanupProvider {
+    /// Whether an HTTP failure means "the key is bad" rather than anything
+    /// else. Anthropic and OpenAI say 401 or 403. Google says **400** with
+    /// "API key not valid" in the body — the same status it uses for a
+    /// malformed request, so the body has to be consulted.
+    public static func isKeyRejection(status: Int, body: String) -> Bool {
+        if status == 401 || status == 403 { return true }
+        if status == 400 {
+            let lowered = body.lowercased()
+            return lowered.contains("api key not valid") || lowered.contains("api_key_invalid")
+        }
+        return false
+    }
+
     /// A cheap authenticated endpoint used only to check the key.
     var modelsURL: URL {
         switch self {
         case .anthropic: URL(string: "https://api.anthropic.com/v1/models")!
         case .openAI: URL(string: "https://api.openai.com/v1/models")!
+        case .gemini: URL(string: "https://generativelanguage.googleapis.com/v1beta/models")!
         }
     }
 
@@ -144,6 +160,7 @@ extension CleanupProvider {
         switch self {
         case .anthropic: ["x-api-key": key, "anthropic-version": "2023-06-01"]
         case .openAI: ["Authorization": "Bearer \(key)"]
+        case .gemini: ["x-goog-api-key": key]
         }
     }
 }

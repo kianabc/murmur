@@ -1,12 +1,15 @@
 {
   "_comment": "Model prices in USD per million tokens. Murmur fetches this daily so pricing changes reach users without an app update. Only model IDs already in the app's catalog are accepted, and values outside 0-1000 are ignored. Verified against each vendor's own pricing page.",
-  "_updated": "2026-08-07",
+  "_updated": "2026-10-03",
   "models": {
     "claude-haiku-4-5":  { "input": 1.00, "output": 5.00 },
     "claude-sonnet-5":   { "input": 3.00, "output": 15.00 },
     "claude-opus-5":     { "input": 5.00, "output": 25.00 },
     "gpt-3.5-turbo":     { "input": 0.50, "output": 1.50 },
     "gpt-4o":            { "input": 2.50, "output": 10.00 },
-    "gpt-5.6-sol":       { "input": 5.00, "output": 30.00 }
+    "gpt-5.6-sol":       { "input": 5.00, "output": 30.00 },
+    "gemini-2.5-flash-lite": { "input": 0.10, "output": 0.40 },
+    "gemini-2.5-flash":      { "input": 0.30, "output": 2.50 },
+    "gemini-2.5-pro":        { "input": 1.25, "output": 10.00 }
   }
 }

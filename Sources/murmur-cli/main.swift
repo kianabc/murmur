@@ -385,6 +385,32 @@ case "fallback-selftest":
     print(fbFailures == 0 ? "the fallback tells the user, every time" : "\(fbFailures) fallback cases FAILED")
     if fbFailures > 0 { exit(1) }
 
+case "nudge-selftest":
+    // Ask once after two raw dictations; "not now" waits a long while; "don't
+    // ask again" means never — on an isolated defaults suite.
+    var nudgeFailures = 0
+    let nd = UserDefaults(suiteName: "murmur.nudge.selftest")!
+    nd.removePersistentDomain(forName: "murmur.nudge.selftest")
+    func nudgeCheck(_ ok: Bool, _ what: String) {
+        if ok { print("  ok  \(what)") } else { nudgeFailures += 1; print("FAIL  \(what)") }
+    }
+    nudgeCheck(!CleanupNudge.noteDictationWithoutKey(defaults: nd), "first raw dictation: quiet")
+    nudgeCheck(CleanupNudge.noteDictationWithoutKey(defaults: nd), "second raw dictation: asks")
+    nudgeCheck(!CleanupNudge.noteDictationWithoutKey(defaults: nd), "third: does not ask again on its own")
+    CleanupNudge.snooze(defaults: nd)
+    var askedAgain = false
+    for _ in 0..<(CleanupNudge.askAgainAfter - 1) { if CleanupNudge.noteDictationWithoutKey(defaults: nd) { askedAgain = true } }
+    nudgeCheck(!askedAgain, "not now: stays quiet for \(CleanupNudge.askAgainAfter - 1) more")
+    nudgeCheck(CleanupNudge.noteDictationWithoutKey(defaults: nd), "…then asks once more")
+    CleanupNudge.dismissForever(defaults: nd)
+    var everAgain = false
+    for _ in 0..<100 { if CleanupNudge.noteDictationWithoutKey(defaults: nd) { everAgain = true } }
+    nudgeCheck(!everAgain, "don't ask again: never")
+    nudgeCheck(CleanupProvider.allCases.allSatisfy { $0.keySteps.count == 4 }, "every provider has four key steps")
+    nd.removePersistentDomain(forName: "murmur.nudge.selftest")
+    print(nudgeFailures == 0 ? "the nudge asks when it should" : "\(nudgeFailures) nudge cases FAILED")
+    if nudgeFailures > 0 { exit(1) }
+
 case "spacing-selftest":
     // Two dictations in a row used to run together: "…back to back.You can see
     // it here." Adding a space is easy; adding it in the wrong place is the
@@ -919,6 +945,16 @@ case "keystatus-selftest":
     let openAIBody = Data(#"{"error":{"message":"Incorrect API key provided: sk-abc","type":"invalid_request_error"}}"#.utf8)
     expect(CleanupService.reason(from: anthropicBody) == "invalid x-api-key", "parses Anthropic reason")
     expect(CleanupService.reason(from: openAIBody)?.hasPrefix("Incorrect API key") == true, "parses OpenAI reason")
+    // Google: a bad key is a 400, the same status as a malformed request, so the
+    // body decides. Captured from the live endpoint.
+    let geminiBody = #"{"error":{"code":400,"message":"API key not valid. Please pass a valid API key.","status":"INVALID_ARGUMENT"}}"#
+    expect(CleanupService.reason(from: Data(geminiBody.utf8))?.hasPrefix("API key not valid") == true, "parses Gemini reason")
+    expect(CleanupProvider.isKeyRejection(status: 400, body: geminiBody), "Gemini 400 + 'API key not valid' is a rejection")
+    expect(!CleanupProvider.isKeyRejection(status: 400, body: #"{"error":{"message":"Invalid JSON payload"}}"#), "a plain 400 is not a key rejection")
+    expect(CleanupProvider.isKeyRejection(status: 401, body: ""), "401 is always a rejection")
+    expect(!CleanupProvider.isKeyRejection(status: 429, body: "rate"), "429 is not a rejection")
+    expect(CleanupProvider.allCases.count == 3 && CleanupProvider.gemini.models.count == 3, "Gemini is listed with three models")
+    expect(CleanupProvider.gemini.models.first?.id == "gemini-2.5-flash-lite", "Gemini's cheapest model is the default")
     expect(CleanupService.reason(from: Data("not json".utf8)) == nil, "survives a non-JSON body")
     expect(CleanupService.reason(from: Data()) == nil, "survives an empty body")
     // Remote text goes on screen, so it must not be able to run long.

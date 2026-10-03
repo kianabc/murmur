@@ -4,6 +4,7 @@ import MurmurCore
 public enum CleanupProvider: String, CaseIterable, Codable, Sendable, Identifiable {
     case anthropic
     case openAI
+    case gemini
 
     public var id: String { rawValue }
 
@@ -11,6 +12,7 @@ public enum CleanupProvider: String, CaseIterable, Codable, Sendable, Identifiab
         switch self {
         case .anthropic: "Anthropic (Claude)"
         case .openAI: "OpenAI (ChatGPT)"
+        case .gemini: "Google (Gemini)"
         }
     }
 
@@ -20,6 +22,7 @@ public enum CleanupProvider: String, CaseIterable, Codable, Sendable, Identifiab
         switch self {
         case .anthropic: "anthropic-api-key"
         case .openAI: "openai-api-key"
+        case .gemini: "gemini-api-key"
         }
     }
 
@@ -27,6 +30,7 @@ public enum CleanupProvider: String, CaseIterable, Codable, Sendable, Identifiab
         switch self {
         case .anthropic: URL(string: "https://console.anthropic.com/settings/keys")!
         case .openAI: URL(string: "https://platform.openai.com/api-keys")!
+        case .gemini: URL(string: "https://aistudio.google.com/apikey")!
         }
     }
 
@@ -34,6 +38,7 @@ public enum CleanupProvider: String, CaseIterable, Codable, Sendable, Identifiab
         switch self {
         case .anthropic: "sk-ant-…"
         case .openAI: "sk-…"
+        case .gemini: "AIza…"
         }
     }
 
@@ -97,6 +102,17 @@ public struct CleanupModelSpec: Identifiable, Hashable, Sendable {
         .init(id: "gpt-5.6-sol", provider: .openAI, displayName: "GPT-5.6 Sol",
               inputPricePerMTok: 5.00, outputPricePerMTok: 30.00,
               blurb: "OpenAI's most capable. Priciest output of any option."),
+
+        // MARK: Google
+        .init(id: "gemini-2.5-flash-lite", provider: .gemini, displayName: "Gemini 2.5 Flash-Lite",
+              inputPricePerMTok: 0.10, outputPricePerMTok: 0.40,
+              blurb: "Cheapest of all. Fine for everyday cleanup."),
+        .init(id: "gemini-2.5-flash", provider: .gemini, displayName: "Gemini 2.5 Flash",
+              inputPricePerMTok: 0.30, outputPricePerMTok: 2.50,
+              blurb: "Fast and good value."),
+        .init(id: "gemini-2.5-pro", provider: .gemini, displayName: "Gemini 2.5 Pro",
+              inputPricePerMTok: 1.25, outputPricePerMTok: 10.00,
+              blurb: "Google's most capable. More than dictation needs."),
 
     ]
 

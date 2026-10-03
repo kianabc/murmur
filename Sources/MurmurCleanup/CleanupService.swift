@@ -140,6 +140,7 @@ public struct CleanupService: Sendable {
         switch model.provider {
         case .anthropic: AnthropicBackend()
         case .openAI: OpenAIBackend()
+        case .gemini: GeminiBackend()
         }
     }
 
@@ -160,7 +161,7 @@ public struct CleanupService: Sendable {
             // A request that succeeds is also proof the key is good, so the
             // status stays current without any extra round trip.
             KeyStatusStore.markValid(model.provider)
-        } catch let CleanupError.http(code, body) where code == 401 || code == 403 {
+        } catch let CleanupError.http(code, body) where CleanupProvider.isKeyRejection(status: code, body: body) {
             // Auth failures are the one error worth surfacing loudly: everything
             // else degrades to the raw transcript and is invisible, but a dead
             // key stays dead until someone replaces it.
@@ -221,6 +222,7 @@ public enum KeyStore {
         let envName = switch provider {
         case .anthropic: "ANTHROPIC_API_KEY"
         case .openAI: "OPENAI_API_KEY"
+        case .gemini: "GEMINI_API_KEY"
         }
         if let env = ProcessInfo.processInfo.environment[envName], !env.isEmpty { return env }
         guard useKeychain else { return nil }

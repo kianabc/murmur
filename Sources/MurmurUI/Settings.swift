@@ -162,6 +162,14 @@ public final class SettingsModel: ObservableObject {
     func refresh() {
         entries = store.all()
 
+        // Something outside this window — the cleanup nudge — can change the
+        // selected provider. Assigning the same value is a no-op in didSet, so
+        // this is safe to do on every refresh.
+        let chosen = CleanupPreference.model
+        if chosen.provider != cleanupProvider { cleanupProvider = chosen.provider }
+        if chosen != cleanupModel { cleanupModel = chosen }
+        cleanupEnabled = CleanupPreference.isEnabled
+
         if let usage {
             let cal = Calendar.current
             last7 = usage.summary(since: cal.date(byAdding: .day, value: -7, to: Date()))
@@ -498,11 +506,23 @@ private struct CleanupTab: View {
                              : model.keyTestMessage)
                             .font(.caption).foregroundStyle(.secondary)
                     } else {
-                        HStack(spacing: 4) {
-                            Text("Without a key, dictation still works — it just skips the cleanup pass.")
-                            Link("Get a key", destination: model.cleanupProvider.keyURL)
+                        // No key yet: the whole route, numbered, with the page
+                        // one click away. This is the screen people had to be
+                        // walked through in person.
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Without a key, dictation still works — it just skips the cleanup pass. Getting one takes about a minute:")
+                            ForEach(Array(model.cleanupProvider.keySteps.enumerated()), id: \.offset) { index, step in
+                                HStack(alignment: .top, spacing: 8) {
+                                    Text("\(index + 1).").monospacedDigit().frame(width: 16, alignment: .trailing)
+                                    Text((try? AttributedString(markdown: step)) ?? AttributedString(step))
+                                }
+                            }
+                            Link("Open the \(model.cleanupProvider.displayName) key page ↗",
+                                 destination: model.cleanupProvider.keyURL)
+                                .padding(.top, 2)
                         }
                         .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                     }
                 }
 

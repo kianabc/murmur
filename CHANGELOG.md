@@ -16,6 +16,20 @@ All notable changes are recorded here. Versions follow [semantic versioning](htt
   appearing — so it now checks whether it actually did, and builds a new one when
   it didn't.
 
+## Unreleased
+
+### Added
+- **Google Gemini** as a third cleanup provider, with three models from
+  cheapest to most capable. Gemini 2.5 Flash-Lite is now the cheapest option
+  anywhere.
+- **Murmur offers to set up AI cleanup.** After a couple of dictations without a
+  key, it asks once, shows what cleanup does, lets you pick a provider, opens
+  that provider's key page, and lands you on the settings screen with the paste
+  field and numbered instructions. "Not now" asks again much later; "Don't ask
+  again" means never.
+- The AI Cleanup settings now show step-by-step instructions for getting a key
+  from whichever provider is selected, until one is saved.
+
 ## [1.9.1] — 2026-10-03
 
 ### Changed

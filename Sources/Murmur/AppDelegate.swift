@@ -11,6 +11,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuBar: MenuBarController!
     private var speechEngine: SpeechAnalyzerEngine?
     private var isInstallingUpdate = false
+    private var nudge: CleanupNudgeWindow?
+
+    /// Offers to set up AI cleanup. Choosing a provider selects its cheapest
+    /// model, opens the provider's key page in the browser, and opens Settings
+    /// on the AI Cleanup tab where the steps and the paste field are.
+    @MainActor
+    private func showCleanupNudge() {
+        Log.echo("nudge: offering AI cleanup")
+        let nudge = CleanupNudgeWindow { [weak self] provider in
+            Log.echo("nudge: chose \(provider.rawValue)")
+            CleanupPreference.model = provider.defaultModel
+            CleanupPreference.isEnabled = true
+            NSWorkspace.shared.open(provider.keyURL)
+            self?.settings?.show(tab: .cleanup)
+        }
+        self.nudge = nudge
+        nudge.show()
+    }
     private let permissions = Permissions()
     private var correctionStore: CorrectionStore?
     private var usageStore: UsageStore?
@@ -79,6 +97,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
                 guard KeyStore.hasKey(for: CleanupPreference.model.provider) else {
                     Log.echo("cleanup: skipped — no API key readable")
+                    if CleanupNudge.noteDictationWithoutKey() {
+                        // After the text has landed, not while the user is
+                        // mid-sentence somewhere else.
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                            self?.showCleanupNudge()
+                        }
+                    }
                     return corrected
                 }
                 // Checked against the corrected text, not the raw: the ledger has
