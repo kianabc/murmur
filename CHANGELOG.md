@@ -16,6 +16,16 @@ All notable changes are recorded here. Versions follow [semantic versioning](htt
   appearing — so it now checks whether it actually did, and builds a new one when
   it didn't.
 
+## Unreleased
+
+### Changed
+- **Updating shows what it's doing.** A small window reports the download,
+  the check, and the restart, instead of several silent seconds before the
+  app vanishes and comes back.
+- **The update offer lists every version you're skipping**, not only the
+  newest, and renders the notes properly — bold is bold and bullets are
+  bullets, rather than raw asterisks and dashes.
+
 ## [1.9.0] — 2026-10-03
 
 ### Added

@@ -1,6 +1,16 @@
 import AppKit
 import Foundation
 
+/// What the updater is doing right now, for a window to show. `fraction` is
+/// nil while the amount of work isn't known.
+public struct UpdateProgress: Sendable, Equatable {
+    public let phase: String
+    public let fraction: Double?
+    public init(_ phase: String, _ fraction: Double? = nil) {
+        self.phase = phase; self.fraction = fraction
+    }
+}
+
 public enum UpdateInstallError: LocalizedError {
     case noDownload
     case download(String)
@@ -65,7 +75,7 @@ public actor Updater {
     /// ready for `relaunch(replacing:)`.
     public func stage(
         _ update: AvailableUpdate,
-        onProgress: @Sendable @escaping (Double) -> Void = { _ in }
+        onProgress: @Sendable @escaping (UpdateProgress) -> Void = { _ in }
     ) async throws -> URL {
         guard let remote = update.downloadURL else { throw UpdateInstallError.noDownload }
         guard UpdateChecker.trusted(remote) != nil else {
@@ -76,13 +86,11 @@ public actor Updater {
         let dmg = work.appendingPathComponent("update.dmg")
 
         Log.echo("update: downloading \(update.version)")
-        onProgress(0)
-        let (tempFile, response) = try await session.download(from: remote)
-        if let http = response as? HTTPURLResponse, http.statusCode != 200 {
-            throw UpdateInstallError.download("HTTP \(http.statusCode)")
+        onProgress(UpdateProgress("Downloading Murmur \(update.version)…", 0))
+        try await download(remote, to: dmg) { fraction in
+            onProgress(UpdateProgress("Downloading Murmur \(update.version)…", fraction))
         }
-        try FileManager.default.moveItem(at: tempFile, to: dmg)
-        onProgress(0.6)
+        onProgress(UpdateProgress("Checking the download…"))
 
         let mount = work.appendingPathComponent("mnt")
         try FileManager.default.createDirectory(at: mount, withIntermediateDirectories: true)
@@ -98,16 +106,55 @@ public actor Updater {
         }
 
         try verifyForInstall(app)
-        onProgress(0.85)
+        onProgress(UpdateProgress("Verified. Preparing to restart…"))
 
         // Copy off the read-only image before it is detached.
         let staged = work.appendingPathComponent("Murmur.app")
         guard run("/usr/bin/ditto", [app.path, staged.path]).ok else {
             throw UpdateInstallError.install("could not stage the new app")
         }
-        onProgress(1)
+        onProgress(UpdateProgress("Restarting…", 1))
         Log.echo("update: staged and verified \(update.version)")
         return staged
+    }
+
+    /// Streams the file down so the window can show how far along it is. A
+    /// plain `download(from:)` gives no progress at all, which on a slow link
+    /// is several seconds of apparently nothing happening.
+    private func download(
+        _ remote: URL, to destination: URL,
+        onFraction: @Sendable @escaping (Double) -> Void
+    ) async throws {
+        let (bytes, response) = try await session.bytes(from: remote)
+        if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+            throw UpdateInstallError.download("HTTP \(http.statusCode)")
+        }
+        let expected = response.expectedContentLength
+        FileManager.default.createFile(atPath: destination.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: destination)
+        defer { try? handle.close() }
+
+        var buffer = Data()
+        buffer.reserveCapacity(64 * 1024)
+        var received: Int64 = 0
+        var lastReported = -1
+        for try await byte in bytes {
+            buffer.append(byte)
+            if buffer.count >= 64 * 1024 {
+                try handle.write(contentsOf: buffer)
+                received += Int64(buffer.count)
+                buffer.removeAll(keepingCapacity: true)
+                if expected > 0 {
+                    let percent = Int(Double(received) / Double(expected) * 100)
+                    if percent != lastReported {
+                        lastReported = percent
+                        onFraction(Double(received) / Double(expected))
+                    }
+                }
+            }
+        }
+        if !buffer.isEmpty { try handle.write(contentsOf: buffer) }
+        onFraction(1)
     }
 
     // MARK: - Verification

@@ -1,3 +1,4 @@
+import AppKit
 import ApplicationServices
 import Foundation
 import MurmurASR
@@ -258,6 +259,40 @@ case "seed-usage":
         }
     }
     print("seeded 45 days of usage")
+
+case "notes-since":
+    // What someone on <version> would be shown before updating.
+    guard args.count >= 2 else { fail("usage: murmur-cli notes-since 1.6.2") }
+    guard let found = try await UpdateChecker(currentVersion: args[1]).check() else {
+        print("nothing newer than \(args[1])"); break
+    }
+    print("offer: \(found.version)")
+    print(found.releaseNotes)
+    // And make sure the alert's renderer accepts it: bold runs, no asterisks.
+    let view = ReleaseNotesView.make(markdown: found.releaseNotes)
+    if let text = (view as? NSScrollView)?.documentView as? NSTextView, let storage = text.textStorage {
+        var boldRuns = 0
+        storage.enumerateAttribute(.font, in: NSRange(location: 0, length: storage.length)) { v, _, _ in
+            if (v as? NSFont)?.fontDescriptor.symbolicTraits.contains(.bold) == true { boldRuns += 1 }
+        }
+        print("rendered: \(storage.length) chars, \(boldRuns) bold runs, asterisks left: \(storage.string.filter { $0 == "*" }.count)")
+    }
+
+case "stage-update":
+    // Downloads, verifies and stages the latest release exactly as the app
+    // would, printing every progress step, and stops short of the relaunch.
+    guard let found = try await UpdateChecker(currentVersion: "0.0.1").check() else {
+        fail("no release found")
+    }
+    var steps: [String] = []
+    let staged = try await Updater(currentVersion: "0.0.1").stage(found) { p in
+        let pct = p.fraction.map { " \(Int($0 * 100))%" } ?? ""
+        let line = "\(p.phase)\(pct)"
+        if steps.last != line { steps.append(line); print("  \(line)") }
+    }
+    print("staged at \(staged.path)")
+    print("progress steps reported: \(steps.count)")
+    try? FileManager.default.removeItem(at: staged.deletingLastPathComponent())
 
 case "probe":
     // What the focus probe says right now, for whatever has keyboard focus.

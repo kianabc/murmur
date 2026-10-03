@@ -301,15 +301,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func offerUpdate(_ update: AvailableUpdate) {
         guard !isInstallingUpdate else { return }
 
-        let alert = NSAlert()
-        alert.messageText = "Murmur \(update.version) is available"
-        alert.informativeText = String(update.releaseNotes.prefix(600))
-        alert.addButton(withTitle: "Update and Restart")
-        alert.addButton(withTitle: "Later")
-        // An accessory app has no windows to attach this to and won't come
-        // forward on its own.
-        NSApp.activate()
-        guard alert.runModal() == .alertFirstButtonReturn else {
+        guard UpdateOfferAlert.ask(version: update.version.description, notes: update.releaseNotes) else {
             Log.echo("update: declined for now")
             return
         }
@@ -320,13 +312,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func installUpdate(_ update: AvailableUpdate) {
         isInstallingUpdate = true
         menuBar.isInstallingUpdate = true
+        let progress = UpdateProgressWindow(version: update.version.description)
+        progress.show(UpdateProgress("Starting…"))
         Task {
             do {
-                let staged = try await Updater().stage(update)
+                let staged = try await Updater().stage(update) { step in
+                    Task { @MainActor in progress.show(step) }
+                }
                 // Replaces the app and relaunches it; this process does not
                 // return from here.
                 try Updater.relaunch(with: staged)
             } catch {
+                progress.close()
                 isInstallingUpdate = false
                 menuBar.isInstallingUpdate = false
                 Log.echo("update FAILED: \(error.localizedDescription)")

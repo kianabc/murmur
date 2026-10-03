@@ -56,8 +56,10 @@ public actor UpdateChecker {
 
     /// Returns an update only when the published release is strictly newer.
     public func check() async throws -> AvailableUpdate? {
+        // The list, not `/latest`: someone three versions behind should read
+        // what all three did, not only the newest.
         var request = URLRequest(
-            url: URL(string: "https://api.github.com/repos/\(Self.repository)/releases/latest")!
+            url: URL(string: "https://api.github.com/repos/\(Self.repository)/releases?per_page=20")!
         )
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.timeoutInterval = 10
@@ -71,13 +73,23 @@ public actor UpdateChecker {
             throw UpdateError.http(http.statusCode)
         }
 
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let tag = json["tag_name"] as? String,
-              let latest = SemanticVersion(tag) else { return nil }
+        guard let list = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+            return nil
+        }
 
-        guard latest > currentVersion else { return nil }
+        let newer: [(version: SemanticVersion, json: [String: Any])] = list.compactMap { json in
+            guard json["draft"] as? Bool != true, json["prerelease"] as? Bool != true,
+                  let tag = json["tag_name"] as? String,
+                  let version = SemanticVersion(tag), version > currentVersion else { return nil }
+            return (version, json)
+        }
+        .sorted { $0.version > $1.version }
 
-        let notes = (json["body"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let latest = newer.first else { return nil }
+        let json = latest.json
+
+        let notes = Self.combinedNotes(newer.map { ($0.version, $0.json["body"] as? String ?? "") })
+
         // Both URLs below come from a network response and are handed to
         // NSWorkspace to open. Validate scheme and host rather than trusting
         // them — a `file:` or `javascript:` URL in that position would be
@@ -94,7 +106,32 @@ public actor UpdateChecker {
             .flatMap(URL.init(string:))
             .flatMap(Self.trusted)
 
-        return AvailableUpdate(version: latest, releaseNotes: notes, pageURL: page, downloadURL: dmg)
+        return AvailableUpdate(version: latest.version, releaseNotes: notes, pageURL: page, downloadURL: dmg)
+    }
+
+    /// One block of notes covering every version being skipped over, newest
+    /// first, each under its own bold version line. Markdown headings and rules
+    /// in the bodies are flattened, because the alert that shows this renders
+    /// inline markdown only.
+    public static func combinedNotes(_ releases: [(SemanticVersion, String)]) -> String {
+        releases.map { version, body in
+            let cleaned = body
+                .replacingOccurrences(of: "\r\n", with: "\n")
+                .split(separator: "\n", omittingEmptySubsequences: false)
+                .map { line -> String in
+                    let trimmed = line.trimmingCharacters(in: .whitespaces)
+                    if trimmed.hasPrefix("#") {
+                        let text = trimmed.drop(while: { $0 == "#" }).trimmingCharacters(in: .whitespaces)
+                        return text.isEmpty ? "" : "**\(text)**"
+                    }
+                    if trimmed == "---" { return "" }
+                    return String(line)
+                }
+                .joined(separator: "\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return "**Murmur \(version)**\n\(cleaned)"
+        }
+        .joined(separator: "\n\n")
     }
 
     /// Only https URLs on GitHub's own hosts are ever opened.
