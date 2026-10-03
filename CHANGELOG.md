@@ -16,7 +16,7 @@ All notable changes are recorded here. Versions follow [semantic versioning](htt
   appearing — so it now checks whether it actually did, and builds a new one when
   it didn't.
 
-## Unreleased
+## [1.9.1] — 2026-10-03
 
 ### Changed
 - **Updating shows what it's doing.** A small window reports the download,
