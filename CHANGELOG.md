@@ -16,10 +16,7 @@ All notable changes are recorded here. Versions follow [semantic versioning](htt
   appearing — so it now checks whether it actually did, and builds a new one when
   it didn't.
 
-## Unreleased
-
-Not published. Held back until the popup and the clipboard fallback are
-confirmed working in real use rather than only under test.
+## [1.9.0] — 2026-10-03
 
 ### Added
 - **The last ten dictations are under the menu bar icon, as "Type Again".** If
