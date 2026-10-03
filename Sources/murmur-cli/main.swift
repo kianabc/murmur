@@ -272,9 +272,10 @@ case "fallback-selftest":
     final class FakeEngine: DictationEngine {
         var onPartial: ((String) -> Void)?
         var onLevel: ((Float) -> Void)?
+        var transcript = "remind me to call the vendor"
         func beginCapture() throws {}
         func cancelCapture() {}
-        func finishCapture() async throws -> String { "remind me to call the vendor" }
+        func finishCapture() async throws -> String { transcript }
     }
     final class FakeSink: TextSink {
         var outcome: InsertOutcome = .typed
@@ -300,7 +301,7 @@ case "fallback-selftest":
 
     // 1. Nowhere to type: the sink reports it copied instead.
     let sink = FakeSink()
-    sink.outcome = .copied(reason: "no text field focused (AXGroup)")
+    sink.outcome = .notTyped(reason: "no text field focused (AXGroup)")
     let controller = DictationController(engine: FakeEngine(), sink: sink)
     controller.startManual()
     spin(0.2)
@@ -308,8 +309,8 @@ case "fallback-selftest":
     controller.stopManual()
     spin(0.5)
     fb(sink.received == ["remind me to call the vendor"], "the sink was handed the transcript")
-    fb(message(controller) == "Couldn't type that — copied. Press ⌘V", "the on-screen message is raised")
-    fb(controller.lastTranscript == "remind me to call the vendor", "the transcript is kept for Copy It Again")
+    fb(message(controller) == "Couldn't type that — it's under the Murmur icon", "the on-screen message is raised")
+    fb(controller.recent.first?.text == "remind me to call the vendor", "the transcript is kept under Type Again")
     spin(2.5)
     fb(message(controller) != nil, "the message is still up after 3 seconds (not the old 2)")
 
@@ -324,7 +325,24 @@ case "fallback-selftest":
     spin(3.0)
     fb(isIdle(controller), "the earlier message's timer does not disturb the later state")
 
-    // 3. A sink that fails outright still says something.
+    // 3. Type Again sends the chosen transcript back through the sink.
+    sink.received = []
+    controller.insertAgain(controller.recent[0])
+    spin(0.5)
+    fb(sink.received == ["remind me to call the vendor"], "Type Again re-sends exactly that transcript")
+    fb(isIdle(controller), "…and a successful re-type ends quietly")
+
+    // 4. The list keeps the newest ten, newest first.
+    let many = FakeSink(); let eng = FakeEngine()
+    let c3 = DictationController(engine: eng, sink: many)
+    for i in 1...12 {
+        eng.transcript = "dictation \(i)"
+        c3.startManual(); spin(0.1); c3.stopManual(); spin(0.3)
+    }
+    fb(c3.recent.count == 10, "only the last ten are kept")
+    fb(c3.recent.first?.text == "dictation 12" && c3.recent.last?.text == "dictation 3", "newest first")
+
+    // 5. A sink that fails outright still says something.
     let broken = DictationController(engine: FakeEngine(), sink: ThrowingSink())
     broken.startManual(); spin(0.2); broken.stopManual(); spin(0.5)
     fb(message(broken) == "boom", "an outright insert failure is reported, not swallowed")

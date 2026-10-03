@@ -119,10 +119,11 @@ public final class PasteboardSink: TextSink {
 
     @discardableResult
     public func insert(_ text: String) throws -> InsertOutcome {
-        // A password field blocks the paste and the event tap both. Losing the
-        // dictation over it helps nobody; hand it back on the clipboard.
+        // A password field blocks the paste and the event tap both. The text is
+        // kept in the recent list; nothing goes near the clipboard.
         if Permissions.isSecureInputActive {
-            return copyOnly(text, reason: "a password field is focused")
+            Log.echo("insert: not typed — a password field is focused")
+            return .notTyped(reason: "a password field is focused")
         }
 
         // Two reasons to stop at the clipboard: the user asked for that, or we
@@ -149,7 +150,7 @@ public final class PasteboardSink: TextSink {
         let focus = FocusProbe.probe()
         if case .notEditable(let role) = focus.focus {
             Log.echo("insert: nowhere to type — \(focus.description)")
-            return copyOnly(text, reason: "no text field focused (\(role))")
+            return .notTyped(reason: "no text field focused (\(role))")
         }
         // Recorded on every insert so the list of refusing roles can be widened
         // against what apps actually report, rather than what they ought to.

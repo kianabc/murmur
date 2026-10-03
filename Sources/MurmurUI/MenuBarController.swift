@@ -33,6 +33,11 @@ public final class MenuBarController {
             }
             .store(in: &cancellables)
 
+        controller.$recent
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.rebuildMenu() }
+            .store(in: &cancellables)
+
         NotificationCenter.default.publisher(for: .murmurKeyStatusChanged)
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.rebuildMenu() }
@@ -104,22 +109,29 @@ public final class MenuBarController {
             menu.addItem(.separator())
         }
 
-        if !controller.lastTranscript.isEmpty {
-            let preview = String(controller.lastTranscript.prefix(48))
-            let item = NSMenuItem(title: "Last: \u{201C}\(preview)\u{201D}", action: nil, keyEquivalent: "")
-            item.isEnabled = false
-            menu.addItem(item)
-
-            // Recovery for a paste that went nowhere. Deliberately something you
-            // ask for: guessing whether the last paste landed meant clobbering
-            // the clipboard on a signal that turned out to be noise.
-            let copy = NSMenuItem(
-                title: "Copy It Again",
-                action: #selector(copyLastTranscript),
-                keyEquivalent: "c"
-            )
-            copy.target = self
-            menu.addItem(copy)
+        // Recovery for a dictation that went nowhere. Deliberately something you
+        // ask for: guessing whether a paste landed meant clobbering the clipboard
+        // on a signal that turned out to be noise. Pick the one that went astray
+        // and it is typed again, into whatever is focused now.
+        if !controller.recent.isEmpty {
+            let recent = NSMenuItem(title: "Type Again", action: nil, keyEquivalent: "")
+            let sub = NSMenu()
+            let clock = DateFormatter()
+            clock.dateFormat = "HH:mm"
+            for transcript in controller.recent {
+                let preview = transcript.text.prefix(44)
+                let ellipsis = transcript.text.count > 44 ? "…" : ""
+                let item = NSMenuItem(
+                    title: "\(clock.string(from: transcript.date))  \u{201C}\(preview)\(ellipsis)\u{201D}",
+                    action: #selector(typeAgain(_:)),
+                    keyEquivalent: ""
+                )
+                item.target = self
+                item.representedObject = transcript.id.uuidString
+                sub.addItem(item)
+            }
+            recent.submenu = sub
+            menu.addItem(recent)
         }
 
         // Works without Input Monitoring — the whole point of the test bench.
@@ -178,12 +190,11 @@ public final class MenuBarController {
         return item
     }
 
-    @objc private func copyLastTranscript() {
-        let text = controller.lastTranscript
-        guard !text.isEmpty else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
-        Log.echo("copied last transcript (\(text.count) chars) on request")
+    @objc private func typeAgain(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String,
+              let transcript = controller.recent.first(where: { $0.id.uuidString == id })
+        else { return }
+        controller.insertAgain(transcript)
     }
 
     @objc private func installUpdate() {

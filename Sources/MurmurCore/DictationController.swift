@@ -32,8 +32,21 @@ public protocol DictationEngine: AnyObject {
 /// reports success is how a dictation ends up nowhere with nothing said about it.
 public enum InsertOutcome: Equatable, Sendable {
     case typed
-    /// Left on the clipboard for the user to paste, and why.
+    /// Left on the clipboard, and why. Only ever for a permissions or settings
+    /// reason — never as a guess about whether a paste landed.
     case copied(reason: String)
+    /// Not typed anywhere, and why. The text is kept in the recent list.
+    case notTyped(reason: String)
+}
+
+/// One finished dictation, kept so it can be typed again on request.
+public struct Transcript: Identifiable, Equatable, Sendable {
+    public let id: UUID
+    public let text: String
+    public let date: Date
+    public init(text: String, date: Date = Date()) {
+        id = UUID(); self.text = text; self.date = date
+    }
 }
 
 public protocol TextSink: AnyObject {
@@ -52,6 +65,12 @@ public final class DictationController: ObservableObject {
     @Published public private(set) var anchor: CaretLocator.Anchor?
     /// Last thing we inserted — the raw/cleaned swap in M3 needs this.
     @Published public private(set) var lastTranscript: String = ""
+
+    /// The last few dictations, newest first, in memory only. Whether a paste
+    /// landed is not reliably knowable, so instead of guessing, the user can
+    /// pick the one that went astray and have it typed again.
+    @Published public private(set) var recent: [Transcript] = []
+    public static let recentLimit = 10
 
     private let hotkeys: HotkeyMonitor
     private let engine: DictationEngine
@@ -249,22 +268,60 @@ public final class DictationController: ObservableObject {
 
                 let text = await postProcess?(raw) ?? raw
                 lastTranscript = text
-                switch try sink.insert(text) {
-                case .typed:
-                    Log.echo("inserted \(text.count) chars")
-                    state = .idle
-                case .copied(let reason):
-                    // Never silently. The words are safe, but they are not where
-                    // the user was looking, and only they can finish the job.
-                    Log.echo("copied to clipboard — \(reason)")
-                    state = .failed("Couldn't type that — copied. Press ⌘V")
-                    resetSoon(after: 5)
-                }
+                remember(text)
+                apply(try sink.insert(text), for: text)
                 partialText = ""
             } catch {
                 Log.echo("FAILED: \(error)")
                 state = .failed(error.localizedDescription)
                 resetSoon()
+            }
+        }
+    }
+
+    private func remember(_ text: String) {
+        recent.insert(Transcript(text: text), at: 0)
+        if recent.count > Self.recentLimit { recent.removeLast(recent.count - Self.recentLimit) }
+    }
+
+    /// What the user sees after an insertion. Never silence: the words are safe
+    /// either way, but if they are not where the user was looking, only the
+    /// user can finish the job.
+    private func apply(_ outcome: InsertOutcome, for text: String) {
+        switch outcome {
+        case .typed:
+            Log.echo("inserted \(text.count) chars")
+            state = .idle
+        case .copied(let reason):
+            Log.echo("copied to clipboard — \(reason)")
+            state = .failed("Couldn't type that — copied. Press ⌘V")
+            resetSoon(after: 5)
+        case .notTyped(let reason):
+            Log.echo("not typed — \(reason)")
+            state = .failed("Couldn't type that — it's under the Murmur icon")
+            resetSoon(after: 5)
+        }
+    }
+
+    /// Types a recent dictation again, into whatever is focused now. Driven from
+    /// the menu, so by the time this runs the menu has closed and focus is back
+    /// with the user's app.
+    public func insertAgain(_ transcript: Transcript) {
+        switch state {
+        case .idle, .failed: break
+        case .recording, .processing: return
+        }
+        Log.echo("typing again: \(transcript.text.count) chars from \(transcript.date)")
+        // The menu is still tearing down when the action fires; a paste sent
+        // into that moment can go to nobody.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            guard let self else { return }
+            do {
+                self.apply(try self.sink.insert(transcript.text), for: transcript.text)
+            } catch {
+                Log.echo("typing again FAILED: \(error)")
+                self.state = .failed(error.localizedDescription)
+                self.resetSoon()
             }
         }
     }

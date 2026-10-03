@@ -21,12 +21,19 @@ All notable changes are recorded here. Versions follow [semantic versioning](htt
 Not published. Held back until the popup and the clipboard fallback are
 confirmed working in real use rather than only under test.
 
+### Added
+- **The last ten dictations are under the menu bar icon, as "Type Again".** If
+  one didn't land — wrong window, a read-only view, anything — pick it and it is
+  typed into whatever is focused now. Nothing is guessed and the clipboard is
+  never used for it. The list lives in memory only and is gone when Murmur quits.
+
 ### Fixed
 - **Dictating with the cursor outside a text field lost the text silently.** The
   check that decides whether there's anywhere to type was trusting a signal that
   turned out to mean nothing — every app reports it, including the ones that
-  can't accept text. It now goes by what the focused thing actually is, which is
-  what the real readings distinguish on.
+  can't accept text. It now goes by what the focused thing actually is, and when
+  there is nowhere to type it says so and points you at Type Again instead of
+  touching your clipboard.
 - **Two dictations in a row no longer run together.** A space is added when the
   cursor sits straight after a word, and not when it would be wrong: inside a
   bracket or quote, mid hyphenated word, or at the start of a line.
