@@ -107,10 +107,14 @@ The running copy and its log are the evidence used to diagnose problems.
   `release-assets.githubusercontent.com`. A URL from a network response is
   never opened or downloaded unvalidated.
 
-Schedule (`UpdatePreference`): a check runs at launch if the last check was
-more than 24 hours ago, and can be run on demand from Settings. There is no
-timer while running, so a copy that stays open for days does not re-check —
-add a repeating timer with the same 24-hour rule if that matters.
+Schedule (`UpdatePreference`): a check contacts GitHub only if the last
+successful check was more than 24 hours ago. That rule is consulted **at
+launch and then every hour** by a repeating timer — a launch-only check is a
+bug, not a simplification, because a menu bar app is rarely relaunched and so
+never checks again. Use an hourly tick, not a 24-hour timer (which drifts into
+every two days). Record the check time only on success, so a network failure
+retries on the next tick. Wait until the app is idle before showing the offer.
+See `UPDATE-CHECK-FIX.md` for the full write-up.
 
 Offer (`Sources/MurmurUI/UpdateProgressWindow.swift`, `UpdateOfferAlert`):
 an `NSAlert`, "Update and Restart" / "Later", with the combined notes in an
