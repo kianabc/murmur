@@ -13,14 +13,21 @@ import MurmurCore
 public enum UpdateOfferAlert {
     /// Returns true if the user chose to update.
     public static func ask(version: String, notes: String) -> Bool {
+        let alert = make(version: version, notes: notes)
+        NSApp.activate()
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    /// Built separately from `ask` so it can be laid out and looked at without
+    /// running it — which is how the raw-asterisk version shipped unnoticed.
+    public static func make(version: String, notes: String) -> NSAlert {
         let alert = NSAlert()
         alert.messageText = "Murmur \(version) is available"
-        alert.informativeText = "Here's what's changed since your version."
+        alert.informativeText = "Here's everything that's changed since your version."
         alert.accessoryView = ReleaseNotesView.make(markdown: notes)
         alert.addButton(withTitle: "Update and Restart")
         alert.addButton(withTitle: "Later")
-        NSApp.activate()
-        return alert.runModal() == .alertFirstButtonReturn
+        return alert
     }
 }
 

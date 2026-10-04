@@ -41,6 +41,26 @@ public enum ReleaseNotesView {
         paragraph.paragraphSpacing = 2
         body.addAttribute(.paragraphStyle, value: paragraph, range: whole)
 
+        // Bullet points get a hanging indent, so a wrapped line sits under the
+        // text rather than back at the margin under the bullet.
+        let bulletIndent = ("•  " as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 12)]).width
+        let hanging = NSMutableParagraphStyle()
+        hanging.paragraphSpacing = 2
+        hanging.headIndent = bulletIndent
+        // Version headings get a little air above them.
+        let heading = NSMutableParagraphStyle()
+        heading.paragraphSpacingBefore = 6
+        heading.paragraphSpacing = 2
+        let string = body.string as NSString
+        string.enumerateSubstrings(in: whole, options: .byParagraphs) { sub, range, _, _ in
+            guard let sub else { return }
+            if sub.hasPrefix("•") {
+                body.addAttribute(.paragraphStyle, value: hanging, range: range)
+            } else if sub.hasPrefix("Murmur ") {
+                body.addAttribute(.paragraphStyle, value: heading, range: range)
+            }
+        }
+
         let text = NSTextView(frame: NSRect(x: 0, y: 0, width: width, height: height))
         text.isEditable = false
         text.isSelectable = true

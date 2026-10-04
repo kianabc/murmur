@@ -16,6 +16,18 @@ All notable changes are recorded here. Versions follow [semantic versioning](htt
   appearing — so it now checks whether it actually did, and builds a new one when
   it didn't.
 
+## Unreleased
+
+### Added
+- **Choose how often Murmur checks for updates** — daily or weekly, under
+  Settings → About. Weekly is the default.
+
+### Changed
+- While running, Murmur now looks once a day rather than every hour; whether
+  it actually contacts GitHub is decided by the daily-or-weekly setting.
+- Wrapped lines in the update notes now line up under the text rather than
+  under the bullet, and each version's heading has a little space above it.
+
 ## [1.10.0] — 2026-10-04
 
 ### Fixed

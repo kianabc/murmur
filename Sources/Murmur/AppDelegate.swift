@@ -229,9 +229,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         checkForUpdatesIfDue()
         // Launch alone is not enough: a menu bar app stays open for days, and
         // one that only checked at launch never heard about a release until it
-        // happened to be restarted. Look every hour; the 24-hour rule inside
-        // still decides whether a check is actually due.
-        updateTimer = Timer.scheduledTimer(withTimeInterval: 60 * 60, repeats: true) { [weak self] _ in
+        // happened to be restarted. Look once a day; the daily-or-weekly rule
+        // inside decides whether GitHub is actually contacted.
+        updateTimer = Timer.scheduledTimer(withTimeInterval: 24 * 60 * 60, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.checkForUpdatesIfDue() }
         }
         // Providers change prices on their own schedule; a compiled-in table

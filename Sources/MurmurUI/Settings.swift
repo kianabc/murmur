@@ -69,6 +69,9 @@ public final class SettingsModel: ObservableObject {
     @Published var updateStatus = ""
     @Published var availableUpdate: AvailableUpdate?
     @Published var checkingForUpdate = false
+    @Published var updateFrequency = UpdatePreference.frequency {
+        didSet { UpdatePreference.frequency = updateFrequency }
+    }
     @Published var autoCheckUpdates = UpdatePreference.automatic {
         didSet { UpdatePreference.automatic = autoCheckUpdates }
     }
@@ -643,6 +646,11 @@ private struct AboutTab: View {
 
             Section {
                 Toggle("Check for updates automatically", isOn: $model.autoCheckUpdates)
+                if model.autoCheckUpdates {
+                    Picker("Frequency", selection: $model.updateFrequency) {
+                        ForEach(UpdateFrequency.allCases, id: \.self) { Text($0.displayName).tag($0) }
+                    }
+                }
 
                 HStack {
                     Button(model.checkingForUpdate ? "Checking…" : "Check now") {
@@ -665,7 +673,7 @@ private struct AboutTab: View {
             } header: {
                 Text("Updates")
             } footer: {
-                Text("Checks GitHub for a newer release once a day. Murmur installs an update only when you ask, and only after checking it was signed by the same developer and notarised by Apple — the same bar macOS applies to running the app at all.")
+                Text("Checks GitHub for a newer release daily or weekly, as chosen above. Murmur installs an update only when you ask, and only after checking it was signed by the same developer and notarised by Apple — the same bar macOS applies to running the app at all.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 

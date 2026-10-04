@@ -153,9 +153,40 @@ public actor UpdateChecker {
     }
 }
 
+public enum UpdateFrequency: String, CaseIterable, Sendable {
+    case daily
+    case weekly
+
+    public static let `default`: UpdateFrequency = .weekly
+
+    public var displayName: String {
+        switch self {
+        case .daily: "Daily"
+        case .weekly: "Weekly"
+        }
+    }
+
+    public var interval: TimeInterval {
+        switch self {
+        case .daily: 24 * 60 * 60
+        case .weekly: 7 * 24 * 60 * 60
+        }
+    }
+}
+
 public enum UpdatePreference {
     private static let autoKey = "com.torimi.murmur.checkForUpdates"
     private static let lastKey = "com.torimi.murmur.lastUpdateCheck"
+    private static let frequencyKey = "com.torimi.murmur.updateFrequency"
+
+    public static var frequency: UpdateFrequency {
+        get {
+            guard let raw = UserDefaults.standard.string(forKey: frequencyKey),
+                  let value = UpdateFrequency(rawValue: raw) else { return .default }
+            return value
+        }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: frequencyKey) }
+    }
 
     public static var automatic: Bool {
         get { UserDefaults.standard.object(forKey: autoKey) as? Bool ?? true }
@@ -167,12 +198,18 @@ public enum UpdatePreference {
         set { UserDefaults.standard.set(newValue, forKey: lastKey) }
     }
 
-    /// Once a day is plenty for an app like this. Asked at launch and then every
-    /// hour while running — asking only at launch meant a copy left open for a
-    /// week never checked at all.
+    /// Daily or weekly, the user's choice. Asked at launch and then once a day
+    /// while running — asking only at launch meant a copy left open for a week
+    /// never checked at all.
+    ///
+    /// The hour of slack matters. The daily tick is scheduled at launch, and the
+    /// launch check finishes a moment later, so each tick arrives fractionally
+    /// *before* the interval is up. Without slack the tick finds "not due yet"
+    /// and the next chance is a whole day later: daily silently becomes every
+    /// other day, weekly becomes eight days.
     public static var isDue: Bool {
         guard automatic else { return false }
         guard let last = lastChecked else { return true }
-        return Date().timeIntervalSince(last) > 24 * 60 * 60
+        return Date().timeIntervalSince(last) > frequency.interval - 60 * 60
     }
 }

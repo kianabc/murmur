@@ -278,6 +278,31 @@ case "notes-since":
         print("rendered: \(storage.length) chars, \(boldRuns) bold runs, asterisks left: \(storage.string.filter { $0 == "*" }.count)")
     }
 
+case "render-offer":
+    // Lays out the real update alert for someone on <version> and saves a
+    // picture of it, so the formatting can be checked without installing.
+    guard args.count >= 3 else { fail("usage: murmur-cli render-offer 1.6.2 out.png") }
+    guard let found = try await UpdateChecker(currentVersion: args[1]).check() else { fail("nothing newer") }
+    _ = NSApplication.shared
+    let alert = UpdateOfferAlert.make(version: found.version.description, notes: found.releaseNotes)
+    alert.layout()
+    let window = alert.window
+    // Offscreen caching skips the text; the real window has to be drawn. It is
+    // on screen for about a second, then captured on its own and closed.
+    NSApplication.shared.setActivationPolicy(.accessory)
+    window.level = .floating
+    window.center()
+    window.orderFrontRegardless()
+    RunLoop.main.run(until: Date().addingTimeInterval(0.8))
+    let shot = Process()
+    shot.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+    shot.arguments = ["-x", "-o", "-l", "\(window.windowNumber)", args[2]]
+    try shot.run(); shot.waitUntilExit()
+    window.orderOut(nil)
+    let scroll = alert.accessoryView as? NSScrollView
+    let doc = scroll?.documentView?.frame.height ?? 0
+    print("window \(Int(window.frame.width))×\(Int(window.frame.height)), notes box \(Int(scroll?.frame.height ?? 0)) tall, content \(Int(doc)) tall → scrolls: \(doc > (scroll?.frame.height ?? 0))")
+
 case "stage-update":
     // Downloads, verifies and stages the latest release exactly as the app
     // would, printing every progress step, and stops short of the relaunch.

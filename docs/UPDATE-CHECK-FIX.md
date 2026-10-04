@@ -30,9 +30,9 @@ out for a day, no offer.
 
 ## The fix
 
-Ask the same question every hour while the app is running. The 24-hour rule
-inside still decides whether anything actually happens, so this is still one
-network request per day — the hourly tick only reads the clock.
+Ask the same question once a day while the app is running. The rule inside
+(daily or weekly, the user's choice in Settings; default weekly) decides
+whether GitHub is actually contacted.
 
 ```swift
 private var updateTimer: Timer?
@@ -40,19 +40,28 @@ private var updateTimer: Timer?
 func applicationDidFinishLaunching(_ notification: Notification) {
     // ...
     checkForUpdatesIfDue()
-    updateTimer = Timer.scheduledTimer(withTimeInterval: 60 * 60, repeats: true) { [weak self] _ in
+    updateTimer = Timer.scheduledTimer(withTimeInterval: 24 * 60 * 60, repeats: true) { [weak self] _ in
         MainActor.assumeIsolated { self?.checkForUpdatesIfDue() }
     }
+}
+
+// The rule — note the hour of slack:
+static var isDue: Bool {
+    guard automatic else { return false }
+    guard let last = lastChecked else { return true }
+    return Date().timeIntervalSince(last) > frequency.interval - 60 * 60
 }
 ```
 
 Three details that matter:
 
-1. **Don't use a 24-hour timer instead.** A timer started at launch fires a
-   moment *before* the previous check is 24 hours old (the check finished a
-   little after the timer was scheduled), finds it "not due", and waits another
-   full day — so it silently becomes every two days. An hourly tick avoids
-   that, and also catches up within the hour after a laptop wakes from sleep.
+1. **Give the rule an hour of slack.** The daily timer is scheduled at launch,
+   and the launch check finishes a moment later, so every tick lands a
+   fraction of a second *before* the interval is up. A strict
+   `> interval` comparison then says "not due", and the next chance is a full
+   day later: daily silently becomes every other day, weekly becomes eight
+   days. Subtracting an hour fixes it. (Alternatively tick hourly with a
+   strict rule; Murmur chose daily to keep it quiet.)
 
 2. **Only record the check time when the check succeeded.** If the network is
    down, leave the last-check time alone so the next hourly tick tries again,
@@ -73,8 +82,9 @@ Three details that matter:
   `update check: up to date` / `update available: x.y.z`). Then the log shows
   whether the daily check is happening, rather than you having to wait for a
   release to find out.
-- Unit-test the rule: due after 25 hours, not due after 23, never due when
-  automatic checks are switched off.
+- Unit-test the rule: not due after 22 hours on daily; **due when the tick is
+  two seconds short of 24 hours** (the drift case); weekly not due at 6 days
+  and due two seconds short of 7; never due when automatic checks are off.
 
 ## Note for users already on the broken version
 
