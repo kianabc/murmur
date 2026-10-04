@@ -28,10 +28,26 @@ public enum CleanupProvider: String, CaseIterable, Codable, Sendable, Identifiab
 
     public var keyURL: URL {
         switch self {
-        case .anthropic: URL(string: "https://console.anthropic.com/settings/keys")!
+        // console.anthropic.com now redirects here; link the destination
+        // rather than depend on the redirect surviving.
+        case .anthropic: URL(string: "https://platform.claude.com/settings/keys")!
         case .openAI: URL(string: "https://platform.openai.com/api-keys")!
         case .gemini: URL(string: "https://aistudio.google.com/apikey")!
         }
+    }
+
+    /// The company, for button labels: "Get an Anthropic API key".
+    public var shortName: String {
+        switch self {
+        case .anthropic: "Anthropic"
+        case .openAI: "OpenAI"
+        case .gemini: "Google"
+        }
+    }
+
+    public var getKeyTitle: String {
+        let article = "AEIOU".contains(shortName.prefix(1)) ? "an" : "a"
+        return "Get \(article) \(shortName) API key"
     }
 
     public var keyPrefixHint: String {

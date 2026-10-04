@@ -56,9 +56,9 @@ private struct NudgeView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Did you know Murmur can clean up what you say?")
+                Text("Did you know Murmur can clean up what you say with AI?")
                     .font(.title2.weight(.semibold))
-                Text("Right now you're getting the raw transcript. With an AI cleanup pass, “um”s disappear, “3 — sorry, 4” becomes “4”, and *write my bike* becomes *ride my bike*. It costs well under a dollar a month, and you pay the AI provider directly — Murmur never sees your key.")
+                Text("Right now you're getting the raw transcript. With an AI cleanup pass, “um”s disappear, “3 — sorry, 4” becomes “4”, and *write my bike* becomes *ride my bike*. It costs well under a dollar a month, paid to the AI provider directly. Your key stays in your Mac's Keychain and is only ever sent to them.")
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -74,7 +74,7 @@ private struct NudgeView: View {
             .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("Pick one. You'll need a key from them — it takes about a minute, and the next screen walks you through it.")
+                Text("Pick one. You'll need an API key from them — it takes about a minute, and Murmur walks you through it.")
                     .font(.callout)
                     .fixedSize(horizontal: false, vertical: true)
                 Picker("", selection: $picked) {
@@ -91,11 +91,11 @@ private struct NudgeView: View {
             }
 
             HStack {
-                Button("Don't ask again") { never() }
+                Button("Don't tell me again") { never() }
                     .buttonStyle(.plain).foregroundStyle(.secondary)
                 Spacer()
-                Button("Not now") { notNow() }
-                Button("Get a \(picked.displayName.components(separatedBy: " ").first ?? "") key") { choose(picked) }
+                Button("Maybe later") { notNow() }
+                Button("Try now") { choose(picked) }
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
             }

@@ -278,6 +278,46 @@ case "notes-since":
         print("rendered: \(storage.length) chars, \(boldRuns) bold runs, asterisks left: \(storage.string.filter { $0 == "*" }.count)")
     }
 
+case "render-ui":
+    // Draws the cleanup prompt and the AI Cleanup settings tab and saves a
+    // picture of each, so they're checked by looking. Runs under this tool's
+    // own preferences, never the app's, so no key is present: the state a new
+    // user sees.
+    guard args.count >= 2 else { fail("usage: murmur-cli render-ui <out-dir>") }
+    let outDir = URL(fileURLWithPath: args[1])
+    _ = NSApplication.shared
+    NSApplication.shared.setActivationPolicy(.accessory)
+    func capture(_ window: NSWindow, _ name: String) throws {
+        window.level = .floating
+        window.orderFrontRegardless()
+        RunLoop.main.run(until: Date().addingTimeInterval(1.0))
+        let shot = Process()
+        shot.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+        shot.arguments = ["-x", "-o", "-l", "\(window.windowNumber)", outDir.appendingPathComponent(name).path]
+        try shot.run(); shot.waitUntilExit()
+        window.orderOut(nil)
+        print("saved \(name)  \(Int(window.frame.width))×\(Int(window.frame.height))")
+    }
+
+    let before = Set(NSApp.windows.map(\.windowNumber))
+    let nudgeWindow = CleanupNudgeWindow { _ in }
+    nudgeWindow.show()
+    RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+    if let w = NSApp.windows.first(where: { !before.contains($0.windowNumber) && $0.isVisible }) {
+        try capture(w, "nudge.png")
+    }
+
+    let scratchDB = FileManager.default.temporaryDirectory.appendingPathComponent("render-\(UUID().uuidString).sqlite")
+    let settingsUI = SettingsWindowController(
+        store: try CorrectionStore(url: scratchDB), usage: nil, hotkey: .rightOption, onHotkeyChange: { _ in }
+    )
+    settingsUI.show(tab: .cleanup)
+    RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+    if let w = NSApp.windows.first(where: { $0.title == "Murmur Settings" }) {
+        try capture(w, "settings-cleanup.png")
+    }
+    try? FileManager.default.removeItem(at: scratchDB)
+
 case "render-offer":
     // Lays out the real update alert for someone on <version> and saves a
     // picture of it, so the formatting can be checked without installing.
@@ -498,9 +538,12 @@ case "nudge-selftest":
     func nudgeCheck(_ ok: Bool, _ what: String) {
         if ok { print("  ok  \(what)") } else { nudgeFailures += 1; print("FAIL  \(what)") }
     }
-    nudgeCheck(!CleanupNudge.noteDictationWithoutKey(defaults: nd), "first raw dictation: quiet")
-    nudgeCheck(CleanupNudge.noteDictationWithoutKey(defaults: nd), "second raw dictation: asks")
-    nudgeCheck(!CleanupNudge.noteDictationWithoutKey(defaults: nd), "third: does not ask again on its own")
+    var earlyAsk = false
+    for _ in 1..<CleanupNudge.askAfter { if CleanupNudge.noteDictationWithoutKey(defaults: nd) { earlyAsk = true } }
+    nudgeCheck(!earlyAsk, "first \(CleanupNudge.askAfter - 1) raw dictations: quiet")
+    nudgeCheck(CleanupNudge.noteDictationWithoutKey(defaults: nd), "dictation \(CleanupNudge.askAfter): asks")
+    nudgeCheck(!CleanupNudge.noteDictationWithoutKey(defaults: nd), "the one after: does not ask again on its own")
+    nudgeCheck(CleanupNudge.askAfter == 5, "asks after five uses")
     CleanupNudge.snooze(defaults: nd)
     var askedAgain = false
     for _ in 0..<(CleanupNudge.askAgainAfter - 1) { if CleanupNudge.noteDictationWithoutKey(defaults: nd) { askedAgain = true } }
@@ -511,6 +554,12 @@ case "nudge-selftest":
     for _ in 0..<100 { if CleanupNudge.noteDictationWithoutKey(defaults: nd) { everAgain = true } }
     nudgeCheck(!everAgain, "don't ask again: never")
     nudgeCheck(CleanupProvider.allCases.allSatisfy { $0.keySteps.count == 4 }, "every provider has four key steps")
+    nudgeCheck(CleanupProvider.anthropic.getKeyTitle == "Get an Anthropic API key"
+               && CleanupProvider.openAI.getKeyTitle == "Get an OpenAI API key"
+               && CleanupProvider.gemini.getKeyTitle == "Get a Google API key", "button titles read naturally")
+    nudgeCheck(CleanupProvider.allCases.allSatisfy { $0.keyURL.scheme == "https" }, "every key link is https")
+    nudgeCheck(CleanupProvider.allCases.allSatisfy { p in p.keySteps[0].contains(p.getKeyTitle) },
+               "each provider's first step names the exact button to press")
     nd.removePersistentDomain(forName: "murmur.nudge.selftest")
     print(nudgeFailures == 0 ? "the nudge asks when it should" : "\(nudgeFailures) nudge cases FAILED")
     if nudgeFailures > 0 { exit(1) }

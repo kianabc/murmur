@@ -8,19 +8,19 @@ public extension CleanupProvider {
     var keySteps: [String] {
         switch self {
         case .anthropic: [
-            "Sign in or create an account at console.anthropic.com. You'll need to add a payment method — a few dollars lasts months.",
-            "Open **API Keys** (the page the button opens) and click **Create Key**. Any name is fine.",
+            "Click **Get an Anthropic API key** above. Sign in or create an account — you'll need to add a payment method, and a few dollars lasts months.",
+            "On the **API Keys** page, click **Create Key**. Any name is fine.",
             "Copy the key that appears. It starts with `sk-ant-` and is shown only once.",
             "Come back here and paste it into the field. Murmur checks it straight away.",
         ]
         case .openAI: [
-            "Sign in or create an account at platform.openai.com. Add a little credit under **Billing** — a few dollars lasts months.",
-            "Open **API keys** (the page the button opens) and click **Create new secret key**.",
+            "Click **Get an OpenAI API key** above. Sign in or create an account, and add a little credit under **Billing** — a few dollars lasts months.",
+            "On the **API keys** page, click **Create new secret key**.",
             "Copy the key that appears. It starts with `sk-` and is shown only once.",
             "Come back here and paste it into the field. Murmur checks it straight away.",
         ]
         case .gemini: [
-            "Sign in with a Google account at aistudio.google.com — the page the button opens.",
+            "Click **Get a Google API key** above and sign in with any Google account.",
             "Click **Create API key** and pick or create a project. The free tier is enough for dictation.",
             "Copy the key that appears. It starts with `AIza`.",
             "Come back here and paste it into the field. Murmur checks it straight away.",
@@ -45,8 +45,9 @@ public enum CleanupNudge {
     private static let dismissedKey = "com.torimi.murmur.nudge.dismissed"
     private static let snoozedUntilKey = "com.torimi.murmur.nudge.snoozedUntil"
 
-    /// Ask after this many dictations that went out without cleanup.
-    public static let askAfter = 2
+    /// Ask after this many dictations that went out without cleanup — enough
+    /// that the app has proved useful, not so many that the habit has set.
+    public static let askAfter = 5
     /// "Not now" means this many more before asking again.
     public static let askAgainAfter = 25
 

@@ -480,13 +480,36 @@ private struct CleanupTab: View {
                             HStack(spacing: 6) {
                                 // Plain field, not SecureField: it has to accept
                                 // ⌘V, and nobody types one of these by hand.
-                                TextField(model.cleanupProvider.keyPrefixHint, text: $model.apiKey)
+                                // Empty title, hint as the prompt. Inside a Form a
+                                // field's title is drawn as a separate label, which
+                                // left a tiny empty box with "sk-ant-…" printed
+                                // beside it instead of inside.
+                                TextField("", text: $model.apiKey,
+                                          prompt: Text("Paste your key — \(model.cleanupProvider.keyPrefixHint)"))
+                                    .labelsHidden()
+                                    .multilineTextAlignment(.leading)
                                     .textFieldStyle(.roundedBorder)
+                                    .frame(minWidth: 220)
                                     .focused($keyFocused)
                                     .onSubmit(commit)
                                 Button("Save", action: commit)
                                     .disabled(model.apiKey.isEmpty)
                             }
+                        }
+                    }
+
+                    // Straight to the selected provider's key page. Prominent
+                    // until a key is saved, then a quiet way to get a new one.
+                    LabeledContent("") {
+                        if model.hasStoredKey {
+                            Button("\(model.cleanupProvider.getKeyTitle) ↗") {
+                                NSWorkspace.shared.open(model.cleanupProvider.keyURL)
+                            }
+                        } else {
+                            Button("\(model.cleanupProvider.getKeyTitle) ↗") {
+                                NSWorkspace.shared.open(model.cleanupProvider.keyURL)
+                            }
+                            .buttonStyle(.borderedProminent)
                         }
                     }
                 } footer: {
@@ -495,11 +518,8 @@ private struct CleanupTab: View {
                             Text("\(model.cleanupProvider.displayName) rejected this key on \(when.formatted(date: .abbreviated, time: .shortened)).")
                                 .foregroundStyle(.red)
                             Text(reason).foregroundStyle(.secondary)
-                            HStack(spacing: 4) {
-                                Text("Dictation still works — it just skips cleanup.")
-                                Link("Get a new key", destination: model.cleanupProvider.keyURL)
-                            }
-                            .foregroundStyle(.secondary)
+                            Text("Dictation still works — it just skips cleanup. Use the button above to get a new key.")
+                                .foregroundStyle(.secondary)
                         }
                         .font(.caption)
                         .fixedSize(horizontal: false, vertical: true)
@@ -520,9 +540,6 @@ private struct CleanupTab: View {
                                     Text((try? AttributedString(markdown: step)) ?? AttributedString(step))
                                 }
                             }
-                            Link("Open the \(model.cleanupProvider.displayName) key page ↗",
-                                 destination: model.cleanupProvider.keyURL)
-                                .padding(.top, 2)
                         }
                         .font(.caption).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

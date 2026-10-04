@@ -16,6 +16,23 @@ All notable changes are recorded here. Versions follow [semantic versioning](htt
   appearing — so it now checks whether it actually did, and builds a new one when
   it didn't.
 
+## Unreleased
+
+### Changed
+- **The AI cleanup suggestion now appears after five uses**, not two, with three
+  plain choices: **Try now**, **Maybe later**, or **Don't tell me again**.
+- **A "Get an API key" button** on the AI Cleanup tab goes straight to the
+  selected provider's key page — Anthropic, OpenAI or Google. It's prominent
+  until a key is saved, and the steps beneath it name that exact button.
+- Anthropic's key link points at its new address, platform.claude.com.
+
+### Fixed
+- **The API key field looked broken.** It was a tiny empty box with the hint
+  printed beside it instead of inside it. It's now a full-width field that says
+  "Paste your key".
+- The cleanup suggestion said Murmur never sees your key, which isn't true — it
+  keeps it in the Keychain and sends it to the provider. It now says that.
+
 ## [1.10.1] — 2026-10-04
 
 ### Added
