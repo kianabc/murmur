@@ -203,6 +203,19 @@ public final class HotkeyMonitor {
     public func simulateOtherKey() { otherKeyPressed() }
     public func simulateEsc() { escPressed() }
 
+    /// Forget the press in progress. Called when the controller refused to start
+    /// a dictation — otherwise this side carries on believing it is recording or
+    /// latched, and the next tap means "stop" here while it means "start" there.
+    /// That disagreement is what made the key appear to do nothing.
+    public func abandonPress() {
+        let wasDown = keyIsDown
+        resetState()
+        // Keep the physical key state: if it is still held, its release must
+        // not be read as the start of a new press.
+        keyIsDown = wasDown
+        pressDisqualified = wasDown
+    }
+
     // MARK: - Main thread: all state lives here
 
     private func keyPressed(chorded: Bool = false) {

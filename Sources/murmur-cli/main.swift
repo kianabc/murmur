@@ -385,6 +385,85 @@ case "fallback-selftest":
     print(fbFailures == 0 ? "the fallback tells the user, every time" : "\(fbFailures) fallback cases FAILED")
     if fbFailures > 0 { exit(1) }
 
+case "stuck-selftest":
+    // The "stuck in Recording" report: a tap too short for any audio, then a
+    // finish that never returns. Reproduces the hang with the old timeout shape,
+    // then shows the app cannot get stuck that way any more.
+    var stuckFailures = 0
+    func st(_ ok: Bool, _ what: String) {
+        if ok { print("  ok  \(what)") } else { stuckFailures += 1; print("FAIL  \(what)") }
+    }
+    func spinS(_ s: Double) { RunLoop.main.run(until: Date().addingTimeInterval(s)) }
+
+    // The controller cases run first, before any top-level `await`: after one,
+    // the rest of this block executes inside a main-queue job, and nested
+    // main-queue work cannot run until it ends — which would make the app's own
+    // timers look broken when it is only the harness.
+    // 3. Through the real controller: an engine whose finish never returns.
+    final class HangingEngine: DictationEngine {
+        var onPartial: ((String) -> Void)?
+        var onLevel: ((Float) -> Void)?
+        var cancelled = 0
+        var hang = true
+        func beginCapture() throws {}
+        func cancelCapture() { cancelled += 1 }
+        func finishCapture() async throws -> String {
+            // Ignores cancellation, as the real analyzer does.
+            if hang { await Task.detached { try? await Task.sleep(for: .seconds(30)) }.value }
+            return "hello there"
+        }
+    }
+    final class OkSink: TextSink { func insert(_ text: String) throws -> InsertOutcome { .typed } }
+    let hanging = HangingEngine()
+    let ctl = DictationController(engine: hanging, sink: OkSink())
+    ctl.engineDeadline = 0.5
+    ctl.startManual(); spinS(0.1); ctl.stopManual()
+    spinS(1.2)
+    var released = false
+    if case .failed = ctl.state { released = true }
+    if case .idle = ctl.state { released = true }
+    st(released, "a finish that never returns is abandoned in half a second, not 45")
+    st(hanging.cancelled >= 1, "…and the engine is told to cancel")
+    hanging.hang = false
+    ctl.startManual(); spinS(0.1)
+    var recordingAgain = false
+    if case .recording = ctl.state { recordingAgain = true }
+    st(recordingAgain, "the very next press starts a new dictation")
+    ctl.stopManual(); spinS(0.5)
+
+    // 4. The key side forgets a press the app refused.
+    let km = HotkeyMonitor(hotkey: .rightOption)
+    var seen: [String] = []
+    km.onEvent = { seen.append("\($0)") }
+    km.simulateKeyDown(); spinS(0.3)          // arms → begin
+    km.abandonPress()                         // the app said "busy"
+    km.simulateKeyUp(); spinS(0.1)            // release must not read as a finish
+    st(seen == ["begin"], "a refused press does not later produce a stray finish (got \(seen))")
+
+    // Work that ignores cancellation, as the speech analyzer does.
+    @Sendable func stubborn() async { await Task.detached { try? await Task.sleep(for: .seconds(3)) }.value }
+
+    // 1. The old shape: a task group "timeout" of 0.2s.
+    var t0 = Date()
+    _ = await withTaskGroup(of: Bool.self) { group -> Bool in
+        group.addTask { await stubborn(); return true }
+        group.addTask { try? await Task.sleep(for: .seconds(0.2)); return false }
+        let first = await group.next() ?? false
+        group.cancelAll()
+        return first
+    }
+    let oldTook = Date().timeIntervalSince(t0)
+    st(oldTook > 2.5, String(format: "old task-group timeout of 0.2s actually waited %.1fs (the bug, reproduced)", oldTook))
+
+    // 2. The new one.
+    t0 = Date()
+    let finished = await Deadline.race(seconds: 0.2) { await stubborn() }
+    let newTook = Date().timeIntervalSince(t0)
+    st(!finished && newTook < 0.5, String(format: "Deadline.race of 0.2s returns in %.2fs", newTook))
+
+    print(stuckFailures == 0 ? "it cannot get stuck that way" : "\(stuckFailures) stuck cases FAILED")
+    if stuckFailures > 0 { exit(1) }
+
 case "nudge-selftest":
     // Ask once after two raw dictations; "not now" waits a long while; "don't
     // ask again" means never — on an isolated defaults suite.

@@ -18,6 +18,20 @@ All notable changes are recorded here. Versions follow [semantic versioning](htt
 
 ## Unreleased
 
+### Fixed
+- **Murmur could get stuck on "Recording" for most of a minute.** A tap too
+  short for the microphone to open — easy to do with a few quick presses —
+  produced a recording with no audio, and finishing it waited on the speech
+  engine indefinitely. The time limits meant to prevent that didn't actually
+  limit anything. Empty recordings are now dropped immediately, transcription
+  is abandoned after eight seconds at most, and the next key press always
+  works.
+- **Pressing the key while Murmur was busy confused the next press**, so it
+  could take a tap or two to get going again.
+- **Murmur only checked for updates when it was launched**, so a copy left
+  running for days never heard about a new version. It now checks every hour
+  (still at most once a day), and waits until you're not dictating to ask.
+
 ### Added
 - **Google Gemini** as a third cleanup provider, with three models from
   cheapest to most capable. Gemini 2.5 Flash-Lite is now the cheapest option

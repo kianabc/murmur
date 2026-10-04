@@ -167,8 +167,9 @@ public enum UpdatePreference {
         set { UserDefaults.standard.set(newValue, forKey: lastKey) }
     }
 
-    /// Once a day is plenty for an app like this, and it keeps the launch path
-    /// free of a network call on every start.
+    /// Once a day is plenty for an app like this. Asked at launch and then every
+    /// hour while running — asking only at launch meant a copy left open for a
+    /// week never checked at all.
     public static var isDue: Bool {
         guard automatic else { return false }
         guard let last = lastChecked else { return true }

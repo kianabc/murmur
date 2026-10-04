@@ -241,6 +241,23 @@ public final class SpeechAnalyzerEngine: DictationEngine {
         inputContinuation?.finish()
         inputContinuation = nil
 
+        // Nothing reached the analyzer — a tap too short for the microphone to
+        // open, or a dead input. There is nothing to transcribe, and asking the
+        // analyzer to finalise empty input is exactly what never returns. Drop
+        // it in the background and answer at once.
+        if bufferCount == 0 {
+            let analyzer = self.analyzer
+            startTask?.cancel()
+            resultsTask?.cancel()
+            self.analyzer = nil
+            startTask = nil
+            resultsTask = nil
+            Task { await analyzer?.cancelAndFinishNow() }
+            resetText()
+            Log.echo("engine: no audio captured — skipping the analyzer")
+            return ""
+        }
+
         // The analyzer may still be starting — finalising before it started
         // leaves the results stream open forever. Bounded, because when the mic
         // has gone silent this never completes, and an unbounded await here hung
@@ -267,7 +284,9 @@ public final class SpeechAnalyzerEngine: DictationEngine {
         if !finished {
             Log.echo("engine: drain timed out — returning partial")
             resultsTask?.cancel()
-            await analyzer?.cancelAndFinishNow()
+            // Not awaited: tearing down a stuck analyzer can be as slow as the
+            // thing that got stuck, and the user is waiting.
+            Task { await analyzer?.cancelAndFinishNow() }
         }
         resultsTask = nil
 
@@ -277,18 +296,9 @@ public final class SpeechAnalyzerEngine: DictationEngine {
         return text
     }
 
-    /// Runs `work`, returning false if it didn't finish in time.
+    /// See `Deadline.race` for why this cannot be a task group.
     private static func withTimeout(seconds: Double, _ work: @escaping @Sendable () async -> Void) async -> Bool {
-        await withTaskGroup(of: Bool.self) { group in
-            group.addTask { await work(); return true }
-            group.addTask {
-                try? await Task.sleep(for: .seconds(seconds))
-                return false
-            }
-            let first = await group.next() ?? false
-            group.cancelAll()
-            return first
-        }
+        await Deadline.race(seconds: seconds, work)
     }
 
     public func cancelCapture() {

@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuBar: MenuBarController!
     private var speechEngine: SpeechAnalyzerEngine?
     private var isInstallingUpdate = false
+    private var updateTimer: Timer?
     private var nudge: CleanupNudgeWindow?
 
     /// Offers to set up AI cleanup. Choosing a provider selects its cheapest
@@ -226,6 +227,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         prepareEngine(engine)
         checkForUpdatesIfDue()
+        // Launch alone is not enough: a menu bar app stays open for days, and
+        // one that only checked at launch never heard about a release until it
+        // happened to be restarted. Look every hour; the 24-hour rule inside
+        // still decides whether a check is actually due.
+        updateTimer = Timer.scheduledTimer(withTimeInterval: 60 * 60, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.checkForUpdatesIfDue() }
+        }
         // Providers change prices on their own schedule; a compiled-in table
         // goes stale the moment they do.
         Task { await PriceTable.refreshIfDue() }
@@ -307,16 +315,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard UpdatePreference.isDue else { return }
         Task {
             do {
-                if let update = try await UpdateChecker().check() {
+                Log.echo("update check: looking")
+                let found = try await UpdateChecker().check()
+                // Only a check that reached GitHub counts. A failed one is
+                // retried on the next hourly tick rather than a day later.
+                UpdatePreference.lastChecked = Date()
+                if let update = found {
                     // Writing it to a log file nobody opens is not telling
                     // anyone. This is why updates were being installed by hand.
                     Log.echo("update available: \(update.version)")
                     menuBar.availableUpdate = update
-                    offerUpdate(update)
+                    offerWhenIdle(update)
+                } else {
+                    Log.echo("update check: up to date")
                 }
-                UpdatePreference.lastChecked = Date()
             } catch {
                 Log.echo("update check failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// A modal alert in the middle of a dictation would steal the focus the
+    /// text is about to be typed into. Wait for a quiet moment.
+    @MainActor
+    private func offerWhenIdle(_ update: AvailableUpdate) {
+        if case .idle = controller.state {
+            offerUpdate(update)
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [weak self] in
+                self?.offerWhenIdle(update)
             }
         }
     }

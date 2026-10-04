@@ -39,6 +39,14 @@ public enum InsertOutcome: Equatable, Sendable {
     case notTyped(reason: String)
 }
 
+/// Carries a result out of a `Deadline.race` closure.
+final class TranscriptBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored = ""
+    var value: String { lock.lock(); defer { lock.unlock() }; return stored }
+    func set(_ text: String) { lock.lock(); stored = text; lock.unlock() }
+}
+
 /// One finished dictation, kept so it can be typed again on request.
 public struct Transcript: Identifiable, Equatable, Sendable {
     public let id: UUID
@@ -71,6 +79,10 @@ public final class DictationController: ObservableObject {
     /// pick the one that went astray and have it typed again.
     @Published public private(set) var recent: [Transcript] = []
     public static let recentLimit = 10
+
+    /// How long transcription may take before it is abandoned. Settable so the
+    /// test can prove the bound without waiting eight seconds.
+    public var engineDeadline: Double = 8
 
     private let hotkeys: HotkeyMonitor
     private let engine: DictationEngine
@@ -164,6 +176,9 @@ public final class DictationController: ObservableObject {
             // Silence here is how a wedged state machine looked like a dead
             // hotkey: every press did nothing and said nothing.
             Log.echo("hotkey ignored — still \(state)")
+            // And tell the key side, so it doesn't go on to "latch" a recording
+            // that never started.
+            hotkeys.abandonPress()
             return
         }
 
@@ -253,7 +268,19 @@ public final class DictationController: ObservableObject {
 
         Task { @MainActor in
             do {
-                let transcript = try await engine.finishCapture()
+                // Bounded on its own, well short of the overall watchdog: the
+                // overall one has to allow for a twenty-second cleanup request,
+                // and a stuck transcription should not cost the user that long.
+                let engine = self.engine
+                let box = TranscriptBox()
+                let finishedInTime = await Deadline.race(seconds: engineDeadline) {
+                    box.set((try? await engine.finishCapture()) ?? "")
+                }
+                if !finishedInTime {
+                    Log.echo("engine: finish took over 8s — abandoning it")
+                    engine.cancelCapture()
+                }
+                let transcript = box.value
                 let raw = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !raw.isEmpty else {
                     // Silently returning to idle is indistinguishable from a
