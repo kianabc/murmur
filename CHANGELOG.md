@@ -16,7 +16,7 @@ All notable changes are recorded here. Versions follow [semantic versioning](htt
   appearing — so it now checks whether it actually did, and builds a new one when
   it didn't.
 
-## Unreleased
+## [1.10.1] — 2026-10-04
 
 ### Added
 - **Choose how often Murmur checks for updates** — daily or weekly, under
