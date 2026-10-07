@@ -316,6 +316,11 @@ case "render-ui":
     if let w = NSApp.windows.first(where: { $0.title == "Murmur Settings" }) {
         try capture(w, "settings-cleanup.png")
     }
+    settingsUI.show(tab: .general)
+    RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+    if let w = NSApp.windows.first(where: { $0.title == "Murmur Settings" }) {
+        try capture(w, "settings-general.png")
+    }
     try? FileManager.default.removeItem(at: scratchDB)
 
 case "render-offer":
@@ -528,6 +533,32 @@ case "stuck-selftest":
 
     print(stuckFailures == 0 ? "it cannot get stuck that way" : "\(stuckFailures) stuck cases FAILED")
     if stuckFailures > 0 { exit(1) }
+
+case "login-selftest":
+    // The default rule only; registering a real login item from a test would
+    // change the machine it runs on.
+    var loginFailures = 0
+    func li(_ ok: Bool, _ what: String) {
+        if ok { print("  ok  \(what)") } else { loginFailures += 1; print("FAIL  \(what)") }
+    }
+    let home = FileManager.default.homeDirectoryForCurrentUser.path
+    li(LaunchAtLogin.shouldApplyDefault(decided: false, bundlePath: "/Applications/Murmur.app"),
+       "first run from /Applications: turned on")
+    li(LaunchAtLogin.shouldApplyDefault(decided: false, bundlePath: home + "/Applications/Murmur.app"),
+       "first run from ~/Applications: turned on")
+    li(!LaunchAtLogin.shouldApplyDefault(decided: true, bundlePath: "/Applications/Murmur.app"),
+       "once the user has chosen, the default never overrides them")
+    li(!LaunchAtLogin.shouldApplyDefault(decided: false, bundlePath: "/Volumes/Murmur/Murmur.app"),
+       "running from the disk image: left alone")
+    li(!LaunchAtLogin.shouldApplyDefault(decided: false, bundlePath: home + "/Downloads/Murmur.app"),
+       "running from Downloads: left alone")
+    li(!LaunchAtLogin.shouldApplyDefault(decided: false,
+                                         bundlePath: "/private/var/folders/x/AppTranslocation/ABC/d/Murmur.app"),
+       "a translocated copy: left alone")
+    li(!LaunchAtLogin.shouldApplyDefault(decided: false, bundlePath: "/Users/someone/code/murmur/build/Murmur.app"),
+       "a development build: left alone")
+    print(loginFailures == 0 ? "login item default behaves" : "\(loginFailures) login cases FAILED")
+    if loginFailures > 0 { exit(1) }
 
 case "nudge-selftest":
     // Ask once after two raw dictations; "not now" waits a long while; "don't

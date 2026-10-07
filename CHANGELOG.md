@@ -18,6 +18,11 @@ All notable changes are recorded here. Versions follow [semantic versioning](htt
 
 ## Unreleased
 
+### Added
+- **Murmur opens when you log in**, on by default. Switch it off under Settings
+  → General → Startup, or in System Settings → Login Items — Murmur respects
+  either. It only sets this up for a copy installed in Applications.
+
 ### Changed
 - **The AI cleanup suggestion now appears after five uses**, not two, with three
   plain choices: **Try now**, **Maybe later**, or **Don't tell me again**.

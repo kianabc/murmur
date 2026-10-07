@@ -41,6 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // First thing, so a crash during setup is still recorded.
         Diagnostics.begin(version: AppVersion.current)
         Diagnostics.importSystemReports()
+        LaunchAtLogin.applyDefaultIfUndecided()
 
         // Two menu bar icons means two copies are running — easy to end up with
         // when relaunching during development, and confusing because only one of

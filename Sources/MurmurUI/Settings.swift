@@ -2,6 +2,7 @@ import AppKit
 import MurmurCleanup
 import MurmurCore
 import MurmurStore
+import ServiceManagement
 import SwiftUI
 
 /// Tabs are addressable so the app can open straight to the one that matters —
@@ -69,6 +70,19 @@ public final class SettingsModel: ObservableObject {
     @Published var updateStatus = ""
     @Published var availableUpdate: AvailableUpdate?
     @Published var checkingForUpdate = false
+    @Published var launchAtLogin = LaunchAtLogin.state
+    @Published var launchAtLoginError: String?
+
+    func setLaunchAtLogin(_ on: Bool) {
+        do {
+            try LaunchAtLogin.set(on)
+            launchAtLoginError = nil
+        } catch {
+            launchAtLoginError = error.localizedDescription
+        }
+        launchAtLogin = LaunchAtLogin.state
+    }
+
     @Published var updateFrequency = UpdatePreference.frequency {
         didSet { UpdatePreference.frequency = updateFrequency }
     }
@@ -172,6 +186,7 @@ public final class SettingsModel: ObservableObject {
         if chosen.provider != cleanupProvider { cleanupProvider = chosen.provider }
         if chosen != cleanupModel { cleanupModel = chosen }
         cleanupEnabled = CleanupPreference.isEnabled
+        launchAtLogin = LaunchAtLogin.state
 
         if let usage {
             let cal = Calendar.current
@@ -327,6 +342,32 @@ private struct GeneralTab: View {
 
     var body: some View {
         Form {
+            Section {
+                Toggle("Open Murmur when you log in", isOn: Binding(
+                    get: { model.launchAtLogin == .on || model.launchAtLogin == .needsApproval },
+                    set: { model.setLaunchAtLogin($0) }
+                ))
+                .disabled(model.launchAtLogin == .unavailable)
+            } header: {
+                Text("Startup")
+            } footer: {
+                Group {
+                    switch model.launchAtLogin {
+                    case .needsApproval:
+                        HStack(spacing: 4) {
+                            Text("macOS needs you to allow this.")
+                            Button("Open Login Items") { SMAppService.openSystemSettingsLoginItems() }
+                                .buttonStyle(.link)
+                        }
+                    case .unavailable:
+                        Text("Move Murmur to your Applications folder to open it at login.")
+                    case .on, .off:
+                        Text(model.launchAtLoginError ?? "Murmur lives in your menu bar, so it's ready the moment you need it.")
+                    }
+                }
+                .font(.caption).foregroundStyle(.secondary)
+            }
+
             Section {
                 Picker("Dictation key", selection: $model.hotkey) {
                     ForEach(Hotkey.allCases, id: \.self) { Text($0.displayName).tag($0) }
