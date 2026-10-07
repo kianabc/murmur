@@ -16,7 +16,7 @@ All notable changes are recorded here. Versions follow [semantic versioning](htt
   appearing — so it now checks whether it actually did, and builds a new one when
   it didn't.
 
-## Unreleased
+## [1.11.0] — 2026-10-07
 
 ### Added
 - **Murmur opens when you log in**, on by default. Switch it off under Settings
