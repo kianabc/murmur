@@ -16,6 +16,16 @@ All notable changes are recorded here. Versions follow [semantic versioning](htt
   appearing — so it now checks whether it actually did, and builds a new one when
   it didn't.
 
+## Unreleased
+
+### Fixed
+- **Clipboard managers no longer record everything you dictate.** To type into
+  other apps, Murmur puts the text on the clipboard for a fraction of a second
+  and presses ⌘V. Clipboard managers — Klipt, Maccy, Raycast, Alfred, Paste —
+  saw each of those moments as a copy. Murmur now marks them as temporary,
+  the standard way, so they're skipped. Choosing "Copy to clipboard" in
+  Settings still copies normally.
+
 ## [1.11.0] — 2026-10-07
 
 ### Added

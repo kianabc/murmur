@@ -534,6 +534,52 @@ case "stuck-selftest":
     print(stuckFailures == 0 ? "it cannot get stuck that way" : "\(stuckFailures) stuck cases FAILED")
     if stuckFailures > 0 { exit(1) }
 
+case "clipboard-selftest":
+    // Typing borrows the clipboard for a moment. A clipboard manager must be
+    // able to tell that apart from something the user copied — checked here
+    // with the exact test Klipt applies, on a private pasteboard with the ⌘V
+    // keystroke stubbed out.
+    var cbFailures = 0
+    func cb(_ ok: Bool, _ what: String) {
+        if ok { print("  ok  \(what)") } else { cbFailures += 1; print("FAIL  \(what)") }
+    }
+    // Klipt's rule, verbatim: skip if either marker is present.
+    func kliptWouldSkip(_ board: NSPasteboard) -> Bool {
+        let markers = [NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType"),
+                       NSPasteboard.PasteboardType("org.nspasteboard.TransientType")]
+        return markers.contains { board.types?.contains($0) == true }
+    }
+    let board = NSPasteboard(name: NSPasteboard.Name("murmur.clipboard.selftest.\(UUID().uuidString)"))
+    board.clearContents()
+    board.setString("something the user copied earlier", forType: .string)
+    let modeBefore = InsertionPreference.current
+    InsertionPreference.current = .typeIntoApp
+
+    let typingSink = PasteboardSink(pasteboard: board)
+    var seenDuringPaste = ""
+    var skippedDuringPaste = false
+    typingSink.performPaste = {
+        seenDuringPaste = board.string(forType: .string) ?? ""
+        skippedDuringPaste = kliptWouldSkip(board)
+    }
+    _ = try typingSink.insert("remind me to call the vendor")
+    cb(seenDuringPaste == "remind me to call the vendor", "the dictation is on the clipboard while ⌘V is pressed")
+    cb(skippedDuringPaste, "…marked so Klipt skips it")
+    RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+    cb(board.string(forType: .string) == "something the user copied earlier", "the previous clipboard is put back")
+    cb(kliptWouldSkip(board), "…and the put-back is marked too, so it isn't recorded a second time")
+
+    // The setting the user chooses on purpose: those copies are meant to stay,
+    // and a clipboard manager keeping them is right.
+    InsertionPreference.current = .clipboardOnly
+    _ = try PasteboardSink(pasteboard: board).insert("copy this one on purpose")
+    cb(board.string(forType: .string) == "copy this one on purpose", "clipboard-only mode leaves the text on the clipboard")
+    cb(!kliptWouldSkip(board), "…unmarked, so Klipt does record it")
+    InsertionPreference.current = modeBefore
+
+    print(cbFailures == 0 ? "clipboard managers can tell typing from copying" : "\(cbFailures) clipboard cases FAILED")
+    if cbFailures > 0 { exit(1) }
+
 case "login-selftest":
     // The default rule only; registering a real login item from a test would
     // change the machine it runs on.
