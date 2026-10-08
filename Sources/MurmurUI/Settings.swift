@@ -129,6 +129,7 @@ public final class SettingsModel: ObservableObject {
     private var promptedAccessibility = false
     var onHotkeyChange: ((Hotkey) -> Void)?
     var onInstallUpdate: ((AvailableUpdate) -> Void)?
+    var onShowTour: (() -> Void)?
     /// Switching to always-open should take effect now, not at the next launch.
     var onMicPolicyChange: ((MicrophonePolicy) -> Void)?
 
@@ -700,6 +701,9 @@ private struct AboutTab: View {
             Section {
                 LabeledContent("Version", value: model.appVersion)
                 LabeledContent("Requires", value: "macOS 26 or later")
+                LabeledContent("Tips") {
+                    Button("Show the Four Things Again") { model.onShowTour?() }
+                }
             }
 
             Section {
@@ -873,6 +877,7 @@ public final class SettingsWindowController {
     /// relaunch — and turning it off releases it at once.
     public var onMicPolicyChange: ((MicrophonePolicy) -> Void)?
     public var onInstallUpdate: ((AvailableUpdate) -> Void)?
+    public var onShowTour: (() -> Void)?
 
     /// Built on first `show()`, never at launch. `SettingsModel.init` reads the
     /// API key from the Keychain, and a Keychain read can raise a modal prompt —
@@ -885,6 +890,7 @@ public final class SettingsWindowController {
         created.onHotkeyChange = onHotkeyChange
         created.onMicPolicyChange = { [weak self] policy in self?.onMicPolicyChange?(policy) }
         created.onInstallUpdate = { [weak self] update in self?.onInstallUpdate?(update) }
+        created.onShowTour = { [weak self] in self?.onShowTour?() }
         _model = created
         return created
     }

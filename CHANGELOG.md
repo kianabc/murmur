@@ -16,6 +16,18 @@ All notable changes are recorded here. Versions follow [semantic versioning](htt
   appearing — so it now checks whether it actually did, and builds a new one when
   it didn't.
 
+## Unreleased
+
+### Added
+- **Right-click to correct a word.** Select a word that came out wrong, right-click,
+  and choose **Correct with Murmur…** (under Services in some apps). Type what it
+  should be: Murmur fixes it right there and gets it right from then on.
+- **Fix a Word…** in the menu bar does the same for apps whose right-click menu
+  doesn't offer it, such as some chat and code editors.
+- **A quick tour** of four things worth knowing — locking a recording, AI
+  cleanup, spoken lists and emails, and teaching it your words. Shown once;
+  Settings → About brings it back.
+
 ## [1.11.1] — 2026-10-08
 
 ### Added

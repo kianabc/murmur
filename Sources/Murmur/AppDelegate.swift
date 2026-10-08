@@ -13,6 +13,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var isInstallingUpdate = false
     private var updateTimer: Timer?
     private var nudge: CleanupNudgeWindow?
+    private var correctionService: CorrectionService?
+    private var tour: FeatureTour?
+    private var setupShown = false
+
+    /// The tour, once — after setup has finished if setup is showing, so a new
+    /// user isn't handed two windows at once.
+    @MainActor
+    private func showTourIfDue() {
+        guard FeatureTour.isDue else { return }
+        let tour = FeatureTour(
+            hotkeyName: { [weak self] in self?.controller.hotkey.displayName ?? "the shortcut" },
+            hasCleanupKey: { KeyStore.hasKey(for: CleanupPreference.model.provider) },
+            onSetUpCleanup: { [weak self] in self?.settings?.show(tab: .cleanup) }
+        )
+        self.tour = tour
+        Log.echo("tour: showing edition \(FeatureTour.edition)")
+        tour.show()
+    }
+
+    @MainActor
+    func showTour() {
+        let tour = FeatureTour(
+            hotkeyName: { [weak self] in self?.controller.hotkey.displayName ?? "the shortcut" },
+            hasCleanupKey: { KeyStore.hasKey(for: CleanupPreference.model.provider) },
+            onSetUpCleanup: { [weak self] in self?.settings?.show(tab: .cleanup) }
+        )
+        self.tour = tour
+        tour.show()
+    }
+
+    /// The menu bar fallback for apps whose own right-click menu leaves out
+    /// Services — Electron apps mostly, the Claude app and Slack among them.
+    @MainActor
+    private func fixAWord() {
+        guard let store = correctionStore,
+              let pair = CorrectionPrompt.askBoth(lastDictation: controller.lastTranscript) else { return }
+        do {
+            try store.learn(heard: pair.heard, meant: pair.meant)
+            Log.echo("fix a word: learned \(pair.heard.count) → \(pair.meant.count) chars")
+        } catch {
+            CorrectionPrompt.explain("Couldn't save that correction: \(error.localizedDescription)")
+        }
+    }
 
     /// Offers to set up AI cleanup. Choosing a provider selects its cheapest
     /// model, opens the provider's key page in the browser, and opens Settings
@@ -86,6 +129,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         if let store = try? CorrectionStore(url: CorrectionStore.defaultURL()) {
             correctionStore = store
+            // Right-click → Correct with Murmur… in any app that offers Services.
+            let service = CorrectionService(store: store)
+            correctionService = service
+            NSApp.servicesProvider = service
+            // Tell macOS to re-read the Services this app offers, so the entry
+            // appears right after an install or update rather than after a
+            // logout.
+            NSUpdateDynamicServices()
             let corrector = Corrector(store: store)
             controller.postProcess = { raw in
                 let app = NSWorkspace.shared.frontmostApplication
@@ -184,7 +235,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menuBar = MenuBarController(controller: controller)
         menuBar.onInstallUpdate = { [weak self] update in self?.offerUpdate(update) }
+        menuBar.onFixWord = { [weak self] in self?.fixAWord() }
         settings?.onInstallUpdate = { [weak self] update in self?.offerUpdate(update) }
+        settings?.onShowTour = { [weak self] in self?.showTour() }
         menuBar.onShowSettings = { [weak self] in
             guard let self else { return }
             // Show the raw transcript, not the corrected one — that's the text
@@ -224,6 +277,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             settings?.show(tab: tab)
         } else {
             showPermissionsIfIncomplete()
+            if !setupShown {
+                // A moment after launch, once the menu bar item is up.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.showTourIfDue() }
+            }
         }
 
         prepareEngine(engine)
@@ -290,8 +347,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setup.hotkeyName = controller.hotkey.displayName
         // A dedicated window, not a Settings tab: someone opening the app for
         // the first time shouldn't have to work out which of six tabs to look at.
-        setup.onFinished = { [weak self] in self?.beginListening() }
+        setup.onFinished = { [weak self] in
+            self?.beginListening()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { self?.showTourIfDue() }
+        }
         setup.show()
+        setupShown = true
         return
         Log.echo("setup incomplete — missing: \(missing.isEmpty ? "none (forced)" : missing.map(\.rawValue).joined(separator: ", "))")
         // Straight to the Permissions tab. Opening on General is how people miss

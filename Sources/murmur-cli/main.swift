@@ -328,6 +328,17 @@ case "render-ui":
         try capture(panel, "hud-locked.png")
     }
 
+    let tourWindow = FeatureTour(hotkeyName: { "Right ⌥" }, hasCleanupKey: { false }, onSetUpCleanup: {})
+    let beforeTour = Set(NSApp.windows.map(\.windowNumber))
+    tourWindow.show()
+    RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+    if let w = NSApp.windows.first(where: { !beforeTour.contains($0.windowNumber) && $0.isVisible }) {
+        try capture(w, "tour.png")
+    }
+    let (askAlert, _) = CorrectionPrompt.makeAsk(heard: "Versailles")
+    askAlert.layout()
+    try capture(askAlert.window, "correct-prompt.png")
+
     let scratchDB = FileManager.default.temporaryDirectory.appendingPathComponent("render-\(UUID().uuidString).sqlite")
     let settingsUI = SettingsWindowController(
         store: try CorrectionStore(url: scratchDB), usage: nil, hotkey: .rightOption, onHotkeyChange: { _ in }
@@ -554,6 +565,67 @@ case "stuck-selftest":
 
     print(stuckFailures == 0 ? "it cannot get stuck that way" : "\(stuckFailures) stuck cases FAILED")
     if stuckFailures > 0 { exit(1) }
+
+case "correct-selftest":
+    // Right-click → Correct with Murmur…, through the real handler with only
+    // the dialog stubbed, on a scratch corrections database.
+    var corFailures = 0
+    func co(_ ok: Bool, _ what: String) {
+        if ok { print("  ok  \(what)") } else { corFailures += 1; print("FAIL  \(what)") }
+    }
+    _ = NSApplication.shared
+    let corDB = FileManager.default.temporaryDirectory.appendingPathComponent("correct-\(UUID().uuidString).sqlite")
+    let corStore = try CorrectionStore(url: corDB)
+    let service = CorrectionService(store: corStore)
+    var explained: [String] = []
+    service.explain = { explained.append($0) }
+
+    // macOS calls the selector named by NSMessage plus userData:error:.
+    co(CorrectionService.instancesRespond(to: Selector(("correctWithMurmur:userData:error:"))),
+       "the handler answers to the selector macOS will call")
+
+    co(CorrectionService.validate("  Versailles ") == .ok("Versailles"), "a selected word is accepted, trimmed")
+    co(CorrectionService.validate("") != .ok(""), "nothing selected is refused")
+    co(CorrectionService.validate("one\ntwo") != .ok("one\ntwo"), "several lines are refused")
+    co(CorrectionService.validate(String(repeating: "a", count: 80)) != .ok(String(repeating: "a", count: 80)),
+       "a paragraph is refused")
+
+    func runService(selection: String, answer: String?) -> String? {
+        let pb = NSPasteboard(name: NSPasteboard.Name("murmur.correct.\(UUID().uuidString)"))
+        pb.clearContents(); pb.setString(selection, forType: .string)
+        service.ask = { _ in answer }
+        var err: NSString?
+        service.correctWithMurmur(pb, userData: nil, error: &err)
+        return pb.string(forType: .string)
+    }
+
+    let replaced = runService(selection: "Versailles", answer: "Vercel")
+    co(replaced == "Vercel", "the selection is replaced in place")
+    co(corStore.all().contains { $0.heard == "Versailles" && $0.meant == "Vercel" }, "…and the correction is saved")
+    co(Corrector(store: corStore).apply(to: "we deploy on Versailles today") == "we deploy on Vercel today",
+       "…and applies to the very next dictation")
+
+    let before = corStore.all().count
+    let untouched = runService(selection: "Neve", answer: nil)
+    co(untouched == "Neve" && corStore.all().count == before, "cancel: nothing saved, nothing replaced")
+
+    _ = runService(selection: "line one\nline two", answer: "x")
+    co(explained.last?.contains("not several lines") == true && corStore.all().count == before,
+       "several lines: explained, nothing saved")
+
+    try? FileManager.default.removeItem(at: corDB)
+
+    // The tour shows once per edition.
+    let tourKey = "com.torimi.murmur.tour.seenEdition"
+    let tourBefore = UserDefaults.standard.object(forKey: tourKey)
+    UserDefaults.standard.removeObject(forKey: tourKey)
+    co(FeatureTour.isDue, "a user who has never seen the tour is shown it")
+    UserDefaults.standard.set(FeatureTour.edition, forKey: tourKey)
+    co(!FeatureTour.isDue, "…and only once")
+    if let tourBefore { UserDefaults.standard.set(tourBefore, forKey: tourKey) } else { UserDefaults.standard.removeObject(forKey: tourKey) }
+
+    print(corFailures == 0 ? "correcting from the right-click menu works" : "\(corFailures) correction cases FAILED")
+    if corFailures > 0 { exit(1) }
 
 case "return-selftest":
     // Return stops a locked recording — and must never be swallowed at any
@@ -820,7 +892,20 @@ case "updater-selftest":
                      "a valid Apple-signed app from another team")
 
     let ourBuild = URL(fileURLWithPath: "build/Murmur.app")
-    if FileManager.default.fileExists(atPath: ourBuild.path) {
+    // The accept and downgrade cases need a *notarised* build to mean anything;
+    // a fresh local build is correctly refused for not being notarised, which
+    // would make "refused a downgrade" pass for the wrong reason.
+    let gate = Process()
+    gate.executableURL = URL(fileURLWithPath: "/usr/sbin/spctl")
+    gate.arguments = ["-a", "-t", "exec", "-vv", ourBuild.path]
+    let gatePipe = Pipe(); gate.standardOutput = gatePipe; gate.standardError = gatePipe
+    try? gate.run(); gate.waitUntilExit()
+    let notarisedBuild = String(data: gatePipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+        .contains("source=Notarized Developer ID") == true
+    if FileManager.default.fileExists(atPath: ourBuild.path) && !notarisedBuild {
+        print("  skip our own build — build/Murmur.app is not notarised (run scripts/notarize.sh)")
+        await mustReject(ourBuild, "an un-notarised build of our own")
+    } else if FileManager.default.fileExists(atPath: ourBuild.path) {
         // Our real build, against an older "current" version: must pass.
         do {
             try await updater.verifyForInstall(ourBuild)

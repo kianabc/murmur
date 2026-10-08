@@ -33,6 +33,37 @@
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Murmur listens when you hold your dictation key. Audio is transcribed on this Mac and is never uploaded.</string>
 
+	<!-- Right-click → "Correct with Murmur…" in any app that offers Services.
+	     Return types mean it only appears on editable text, where the fix can
+	     be put straight back in place. An NSRequiredContext — even an empty one
+	     — makes macOS show it by default instead of starting it switched off. -->
+	<key>NSServices</key>
+	<array>
+		<dict>
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>Correct with Murmur…</string>
+			</dict>
+			<key>NSMessage</key>
+			<string>correctWithMurmur</string>
+			<key>NSPortName</key>
+			<string>Murmur</string>
+			<key>NSSendTypes</key>
+			<array>
+				<string>NSStringPboardType</string>
+			</array>
+			<key>NSReturnTypes</key>
+			<array>
+				<string>NSStringPboardType</string>
+			</array>
+			<key>NSRequiredContext</key>
+			<dict/>
+			<key>NSTimeout</key>
+			<string>120000</string>
+		</dict>
+	</array>
+
 	<key>NSHumanReadableCopyright</key>
 	<string>Kian Torimi</string>
 </dict>

@@ -14,6 +14,7 @@ public final class MenuBarController {
 
     public var onShowSettings: (() -> Void)?
     public var onInstallUpdate: ((AvailableUpdate) -> Void)?
+    public var onFixWord: (() -> Void)?
 
     public var availableUpdate: AvailableUpdate? { didSet { rebuildMenu() } }
     public var isInstallingUpdate = false { didSet { rebuildMenu() } }
@@ -134,6 +135,12 @@ public final class MenuBarController {
             menu.addItem(recent)
         }
 
+        // For apps whose right-click menu leaves out Services, where "Correct
+        // with Murmur…" can't appear.
+        let fixWordItem = NSMenuItem(title: "Fix a Word…", action: #selector(fixWord), keyEquivalent: "")
+        fixWordItem.target = self
+        menu.addItem(fixWordItem)
+
         // Works without Input Monitoring — the whole point of the test bench.
         let dictate = NSMenuItem(
             title: controller.state.isActive ? "Stop dictating" : "Start dictating",
@@ -189,6 +196,8 @@ public final class MenuBarController {
         item.isEnabled = false
         return item
     }
+
+    @objc private func fixWord() { onFixWord?() }
 
     @objc private func typeAgain(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? String,
