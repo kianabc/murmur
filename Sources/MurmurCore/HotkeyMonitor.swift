@@ -59,6 +59,30 @@ public final class HotkeyMonitor {
     private let doubleTapWindow: TimeInterval = 0.3
 
     private static let escKeyCode: Int64 = 53
+    /// Return on the main keyboard, and Enter on a numeric keypad.
+    private static let returnKeyCodes: Set<Int64> = [36, 76]
+
+    /// Whether Return should stop the recording instead of reaching the app.
+    ///
+    /// Set by the controller from its own state — `.recording(latched: true)`
+    /// and nothing else — rather than by this monitor's view of things, because
+    /// the two have disagreed before, and a monitor that wrongly believed it was
+    /// latched would eat every Return on the Mac. Read on the event tap's thread,
+    /// so it sits behind a lock and the read is the only work done there.
+    public var returnStopsRecording: Bool {
+        get { swallowLock.lock(); defer { swallowLock.unlock() }; return swallowReturn }
+        set { swallowLock.lock(); swallowReturn = newValue; swallowLock.unlock() }
+    }
+    private let swallowLock = NSLock()
+    private var swallowReturn = false
+    /// A Return keyDown was swallowed; swallow its keyUp too, so the app never
+    /// sees half a keystroke.
+    private var pendingReturnUp = false
+
+    /// Whether the tap can intercept at all. Intercepting needs Accessibility;
+    /// without it the tap falls back to listening, the shortcut still works, and
+    /// Return simply isn't offered as a way to stop.
+    public private(set) var canIntercept = false
 
     /// Caps lock is deliberately absent — it is not a chording modifier.
     private static let chordFlags: CGEventFlags = [.maskCommand, .maskShift, .maskControl, .maskAlternate]
@@ -91,22 +115,35 @@ public final class HotkeyMonitor {
             | (1 << CGEventType.keyUp.rawValue)
         let context = Unmanaged.passUnretained(self).toOpaque()
 
-        guard let tap = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
-            place: .headInsertEventTap,
-            options: .listenOnly,
-            eventsOfInterest: CGEventMask(mask),
-            callback: { _, type, event, refcon in
-                guard let refcon else { return Unmanaged.passUnretained(event) }
-                let monitor = Unmanaged<HotkeyMonitor>.fromOpaque(refcon).takeUnretainedValue()
-                monitor.classify(type: type, event: event)
-                return Unmanaged.passUnretained(event)
-            },
-            userInfo: context
-        ) else {
+        let callback: CGEventTapCallBack = { _, type, event, refcon in
+            guard let refcon else { return Unmanaged.passUnretained(event) }
+            let monitor = Unmanaged<HotkeyMonitor>.fromOpaque(refcon).takeUnretainedValue()
+            if monitor.shouldSwallow(type: type, event: event) { return nil }
+            monitor.classify(type: type, event: event)
+            return Unmanaged.passUnretained(event)
+        }
+
+        // Prefer a tap that can intercept, so Return can stop a locked recording
+        // without also reaching the app — where it would send a chat message
+        // before the dictation had been pasted into it. Without Accessibility
+        // that tap can't be made; fall back to listening rather than lose the
+        // shortcut altogether.
+        var created = CGEvent.tapCreate(
+            tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
+            eventsOfInterest: CGEventMask(mask), callback: callback, userInfo: context
+        )
+        canIntercept = created != nil
+        if created == nil {
+            created = CGEvent.tapCreate(
+                tap: .cgSessionEventTap, place: .headInsertEventTap, options: .listenOnly,
+                eventsOfInterest: CGEventMask(mask), callback: callback, userInfo: context
+            )
+        }
+        guard let tap = created else {
             // Almost always means Input Monitoring hasn't been granted.
             return false
         }
+        Log.echo("hotkey: tap \(canIntercept ? "can intercept Return" : "listen-only (no Accessibility)")")
 
         let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
         CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .commonModes)
@@ -134,6 +171,29 @@ public final class HotkeyMonitor {
     public var isRunning: Bool { tap != nil }
 
     // MARK: - Tap thread: classify only, never touch state
+
+    /// Runs on the tap thread for every key on the Mac, so it does nothing but
+    /// compare a key code and read one flag.
+    private func shouldSwallow(type: CGEventType, event: CGEvent) -> Bool {
+        guard canIntercept, type == .keyDown || type == .keyUp else { return false }
+        let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+        guard Self.returnKeyCodes.contains(keyCode) else { return false }
+
+        swallowLock.lock()
+        defer { swallowLock.unlock() }
+        if type == .keyUp {
+            if pendingReturnUp { pendingReturnUp = false; return true }
+            return false
+        }
+        guard swallowReturn else { return false }
+        swallowReturn = false
+        pendingReturnUp = true
+        let isRepeat = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
+        if !isRepeat {
+            DispatchQueue.main.async { self.returnPressed() }
+        }
+        return true
+    }
 
     private func classify(type: CGEventType, event: CGEvent) {
         // The system disables a tap that takes too long or gets interrupted.
@@ -331,6 +391,27 @@ public final class HotkeyMonitor {
         armTimer = nil
         pressDisqualified = true
         lastTapEnded = 0
+    }
+
+    private func returnPressed() {
+        guard isLatched else { return }
+        isLatched = false
+        isRecording = false
+        emit(.finish)
+    }
+
+    /// For drawing the popup in a test: claim interception is available without
+    /// creating a real tap, which would intercept keys on the machine running it.
+    public func previewInterceptAvailable() { canIntercept = true }
+
+    /// Test entry for Return, through the same decision the tap makes.
+    public func simulateReturn() -> Bool {
+        swallowLock.lock()
+        let swallow = swallowReturn
+        if swallow { swallowReturn = false }
+        swallowLock.unlock()
+        if swallow { returnPressed() }
+        return swallow
     }
 
     private func escPressed() {

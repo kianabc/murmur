@@ -20,7 +20,10 @@ public final class DictationHUD {
     /// Gap between the caret and the panel, so it never covers what you're typing.
     private static let gap: CGFloat = 10
 
+    private weak var controller: DictationController?
+
     public init(controller: DictationController) {
+        self.controller = controller
         controller.$state
             .receive(on: RunLoop.main)
             .sink { [weak self] state in self?.apply(state, anchor: controller.anchor) }
@@ -49,6 +52,12 @@ public final class DictationHUD {
     }
 
     private func apply(_ state: DictationState, anchor: CaretLocator.Anchor?) {
+        // Read fresh each time: the shortcut can be changed in Settings, and
+        // Return is only offered when this Mac lets Murmur intercept it.
+        let key = controller?.hotkey.displayName ?? "the shortcut"
+        model.stopHint = controller?.returnCanStop == true
+            ? "Press \(key) or Return to stop"
+            : "Press \(key) to stop"
         model.state = state
         switch state {
         case .idle:
@@ -183,6 +192,8 @@ final class HUDModel: ObservableObject {
     @Published var state: DictationState = .idle
     @Published var text: String = ""
     @Published var level: Float = 0
+    /// How to stop a locked recording, named from the user's own settings.
+    @Published var stopHint: String = ""
 }
 
 private struct HUDView: View {
@@ -192,14 +203,24 @@ private struct HUDView: View {
         HStack(spacing: 11) {
             leading
 
-            Text(label)
-                .font(.system(size: 13, weight: .medium, design: .rounded))
-                .lineLimit(2)
-                .truncationMode(.head)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .foregroundStyle(isError ? .red : .primary)
-                // New words push in from the trailing edge rather than snapping.
-                .animation(.easeOut(duration: 0.12), value: model.text)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(label)
+                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                    .lineLimit(isLatched ? 1 : 2)
+                    .truncationMode(.head)
+                    .foregroundStyle(isError ? .red : .primary)
+                    // New words push in from the trailing edge rather than snapping.
+                    .animation(.easeOut(duration: 0.12), value: model.text)
+                // A locked recording runs until told to stop, so say how — with
+                // the user's own shortcut, not a generic "tap to stop".
+                if isLatched {
+                    Text(model.stopHint)
+                        .font(.system(size: 11, weight: .regular, design: .rounded))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -226,6 +247,11 @@ private struct HUDView: View {
         }
     }
 
+    private var isLatched: Bool {
+        if case .recording(latched: true) = model.state { return true }
+        return false
+    }
+
     private var isError: Bool {
         if case .failed = model.state { return true }
         return false
@@ -235,7 +261,7 @@ private struct HUDView: View {
         switch model.state {
         case .recording(let latched):
             if !model.text.isEmpty { return model.text }
-            return latched ? "Listening — tap to stop" : "Listening…"
+            return "Listening…"
         case .processing:
             return model.text.isEmpty ? "Transcribing…" : model.text
         case .failed(let reason):

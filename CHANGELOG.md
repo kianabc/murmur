@@ -18,6 +18,15 @@ All notable changes are recorded here. Versions follow [semantic versioning](htt
 
 ## Unreleased
 
+### Added
+- **Press Return to stop a locked recording.** After double-tapping to lock,
+  Return stops it just like tapping the shortcut again — and Murmur keeps that
+  Return to itself, so it can't send your chat message before the dictation
+  has been pasted in. Return is only intercepted while a locked recording is
+  running; the rest of the time it's untouched.
+- **The popup says how to stop.** While locked, it shows "Press Right ⌥ or
+  Return to stop", using whatever shortcut you've chosen in Settings.
+
 ### Fixed
 - **Clipboard managers no longer record everything you dictate.** To type into
   other apps, Murmur puts the text on the clipboard for a fraction of a second

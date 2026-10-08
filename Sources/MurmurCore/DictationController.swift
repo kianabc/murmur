@@ -65,7 +65,20 @@ public protocol TextSink: AnyObject {
 /// Wires hotkey → engine → sink and owns the state machine.
 @MainActor
 public final class DictationController: ObservableObject {
-    @Published public private(set) var state: DictationState = .idle
+    @Published public private(set) var state: DictationState = .idle {
+        // The only thing allowed to arm Return-to-stop: the controller's own
+        // state, which is the truth, rather than the key monitor's guess at it.
+        didSet {
+            if case .recording(latched: true) = state {
+                hotkeys.returnStopsRecording = true
+            } else {
+                hotkeys.returnStopsRecording = false
+            }
+        }
+    }
+
+    /// Whether Return can stop a locked recording on this Mac.
+    public var returnCanStop: Bool { hotkeys.canIntercept }
     @Published public private(set) var partialText: String = ""
     /// Smoothed input level, 0…1. The HUD animates from this.
     @Published public private(set) var level: Float = 0

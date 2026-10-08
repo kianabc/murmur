@@ -307,6 +307,27 @@ case "render-ui":
         try capture(w, "nudge.png")
     }
 
+    final class SilentEngine: DictationEngine {
+        var onPartial: ((String) -> Void)?
+        var onLevel: ((Float) -> Void)?
+        func beginCapture() throws {}
+        func cancelCapture() {}
+        func finishCapture() async throws -> String { "" }
+    }
+    final class DropSink: TextSink { func insert(_ text: String) throws -> InsertOutcome { .typed } }
+    let hudKeys = HotkeyMonitor(hotkey: .rightOption)
+    hudKeys.previewInterceptAvailable()
+    let hudController = DictationController(engine: SilentEngine(), sink: DropSink(), hotkeys: hudKeys)
+    let hud = DictationHUD(controller: hudController)
+    _ = hud
+    let beforeHUD = Set(NSApp.windows.map(\.windowNumber))
+    hudKeys.simulateKeyDown(); hudKeys.simulateKeyUp(); RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+    hudKeys.simulateKeyDown(); RunLoop.main.run(until: Date().addingTimeInterval(0.05)); hudKeys.simulateKeyUp()
+    RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+    if let panel = NSApp.windows.first(where: { !beforeHUD.contains($0.windowNumber) && $0.isVisible }) {
+        try capture(panel, "hud-locked.png")
+    }
+
     let scratchDB = FileManager.default.temporaryDirectory.appendingPathComponent("render-\(UUID().uuidString).sqlite")
     let settingsUI = SettingsWindowController(
         store: try CorrectionStore(url: scratchDB), usage: nil, hotkey: .rightOption, onHotkeyChange: { _ in }
@@ -533,6 +554,70 @@ case "stuck-selftest":
 
     print(stuckFailures == 0 ? "it cannot get stuck that way" : "\(stuckFailures) stuck cases FAILED")
     if stuckFailures > 0 { exit(1) }
+
+case "return-selftest":
+    // Return stops a locked recording — and must never be swallowed at any
+    // other time, because when it is, Return stops working in every app.
+    // Controller cases only, before any top-level await (see stuck-selftest).
+    var retFailures = 0
+    func rt(_ ok: Bool, _ what: String) {
+        if ok { print("  ok  \(what)") } else { retFailures += 1; print("FAIL  \(what)") }
+    }
+    func spinR(_ s: Double) { RunLoop.main.run(until: Date().addingTimeInterval(s)) }
+    final class QuietEngine: DictationEngine {
+        var onPartial: ((String) -> Void)?
+        var onLevel: ((Float) -> Void)?
+        func beginCapture() throws {}
+        func cancelCapture() {}
+        func finishCapture() async throws -> String { "send the report" }
+    }
+    final class NullSink: TextSink { func insert(_ text: String) throws -> InsertOutcome { .typed } }
+
+    let keys = HotkeyMonitor(hotkey: .rightOption)
+    let rc = DictationController(engine: QuietEngine(), sink: NullSink(), hotkeys: keys)
+
+    rt(!keys.returnStopsRecording, "idle: Return passes through")
+    rt(!keys.simulateReturn(), "idle: pressing Return is not swallowed")
+
+    // A held (not locked) recording: Return belongs to the app.
+    keys.simulateKeyDown(); spinR(0.35)
+    var held = false
+    if case .recording(latched: false) = rc.state { held = true }
+    rt(held, "holding the key records")
+    rt(!keys.returnStopsRecording, "…and Return is not intercepted while merely held")
+    keys.simulateKeyUp(); spinR(0.6)
+
+    // Double-tap to lock.
+    keys.simulateKeyDown(); keys.simulateKeyUp(); spinR(0.05)
+    keys.simulateKeyDown(); spinR(0.05); keys.simulateKeyUp(); spinR(0.05)
+    var locked = false
+    if case .recording(latched: true) = rc.state { locked = true }
+    rt(locked, "double-tap locks the recording")
+    rt(keys.returnStopsRecording, "…and only now is Return intercepted")
+    rt(keys.simulateReturn(), "Return is swallowed")
+    spinR(0.4)
+    var stopped = true
+    if case .recording = rc.state { stopped = false }
+    rt(stopped, "…and stops the recording")
+    rt(!keys.returnStopsRecording, "…after which Return passes through again")
+    rt(!keys.simulateReturn(), "a second Return reaches the app")
+
+    // Locked, then stopped with the shortcut instead.
+    spinR(0.3)
+    keys.simulateKeyDown(); keys.simulateKeyUp(); spinR(0.05)
+    keys.simulateKeyDown(); spinR(0.05); keys.simulateKeyUp(); spinR(0.05)
+    rt(keys.returnStopsRecording, "locked again")
+    keys.simulateKeyDown(); spinR(0.05); keys.simulateKeyUp(); spinR(0.4)
+    rt(!keys.returnStopsRecording, "stopping with the shortcut also releases Return")
+
+    // Esc cancels a locked recording; Return must be released then too.
+    keys.simulateKeyDown(); keys.simulateKeyUp(); spinR(0.05)
+    keys.simulateKeyDown(); spinR(0.05); keys.simulateKeyUp(); spinR(0.05)
+    keys.simulateEsc(); spinR(0.1)
+    rt(!keys.returnStopsRecording, "cancelling with Esc releases Return")
+
+    print(retFailures == 0 ? "Return stops a locked recording and nothing else" : "\(retFailures) return cases FAILED")
+    if retFailures > 0 { exit(1) }
 
 case "clipboard-selftest":
     // Typing borrows the clipboard for a moment. A clipboard manager must be
