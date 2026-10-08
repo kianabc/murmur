@@ -16,7 +16,7 @@ All notable changes are recorded here. Versions follow [semantic versioning](htt
   appearing — so it now checks whether it actually did, and builds a new one when
   it didn't.
 
-## Unreleased
+## [1.12.0] — 2026-10-08
 
 ### Added
 - **Right-click to correct a word.** Select a word that came out wrong, right-click,
