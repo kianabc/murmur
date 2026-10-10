@@ -256,12 +256,13 @@ private struct HUDView: View {
         case .failed:
             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
         case .notice:
-            // The app accent, in a soft tile — information, not alarm.
-            Image(systemName: "doc.on.clipboard")
+            // Orange, in a soft tile: something did go wrong, so it should
+            // read as a problem — but a recoverable one, not the red of a loss.
+            Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(.tint)
+                .foregroundStyle(.orange)
                 .frame(width: 28, height: 28)
-                .background(.tint.opacity(0.16), in: RoundedRectangle(cornerRadius: 7))
+                .background(.orange.opacity(0.18), in: RoundedRectangle(cornerRadius: 7))
         case .idle:
             EmptyView()
         }

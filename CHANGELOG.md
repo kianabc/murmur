@@ -21,10 +21,9 @@ All notable changes are recorded here. Versions follow [semantic versioning](htt
 ### Changed
 - **When there's nowhere to type, the text is copied for you.** If the cursor
   isn't in a text field when you finish, Murmur puts the dictation on the
-  clipboard and shows **Copied to clipboard — Press ⌘V to paste it.** This only
-  happens when typing has actually failed — every other time your clipboard is
-  left exactly as it was. It's shown as a calm notice, not a red error, since
-  nothing was lost.
+  clipboard and shows **Couldn't type that**, with "Copied to clipboard — press
+  ⌘V to paste" underneath. This only happens when typing has actually failed —
+  every other time your clipboard is left exactly as it was.
 
 ## [1.12.0] — 2026-10-08
 

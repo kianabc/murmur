@@ -326,8 +326,8 @@ public final class DictationController: ObservableObject {
     /// What the popup says when the text went to the clipboard instead: what
     /// happened, then what to do. Paste is ⌘V on every Mac keyboard layout, so
     /// it's named outright.
-    public static let copiedTitle = "Copied to clipboard"
-    public static let copiedDetail = "Press ⌘V to paste it."
+    public static let copiedTitle = "Couldn't type that"
+    public static let copiedDetail = "Copied to clipboard — press ⌘V to paste."
 
     private func remember(_ text: String) {
         recent.insert(Transcript(text: text), at: 0)

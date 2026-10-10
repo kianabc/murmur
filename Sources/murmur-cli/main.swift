@@ -490,7 +490,7 @@ case "fallback-selftest":
     if case .notice(let title, let detail) = copyController.state {
         noticeShown = title == DictationController.copiedTitle && detail == DictationController.copiedDetail
     }
-    fb(noticeShown, "copied: a notice, not an error — \"\(DictationController.copiedTitle)\" / \"\(DictationController.copiedDetail)\"")
+    fb(noticeShown, "copied: a two-line notice — \"\(DictationController.copiedTitle)\" / \"\(DictationController.copiedDetail)\"")
     fb(DictationController.copiedDetail.contains("⌘V"), "…naming ⌘V")
     copyController.startManual(); spin(0.2)
     var startsOverNotice = false
