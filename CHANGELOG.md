@@ -16,7 +16,7 @@ All notable changes are recorded here. Versions follow [semantic versioning](htt
   appearing — so it now checks whether it actually did, and builds a new one when
   it didn't.
 
-## Unreleased
+## [1.12.1] — 2026-10-09
 
 ### Fixed
 - **The live transcript no longer freezes its first line.** It used to keep the
