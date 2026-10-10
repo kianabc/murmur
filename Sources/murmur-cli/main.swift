@@ -347,6 +347,37 @@ case "render-ui":
         try capture(panel, "hud-copied.png")
     }
 
+    final class TalkingEngine: DictationEngine {
+        var onPartial: ((String) -> Void)?
+        var onLevel: ((Float) -> Void)?
+        func beginCapture() throws {}
+        func cancelCapture() {}
+        func finishCapture() async throws -> String { "" }
+        func say(_ text: String) { onPartial?(text); onLevel?(0.25) }
+    }
+    let talker = TalkingEngine()
+    let growController = DictationController(engine: talker, sink: DropSink(), hotkeys: HotkeyMonitor(hotkey: .rightOption))
+    let growHUD = DictationHUD(controller: growController)
+    _ = growHUD
+    let beforeGrow = Set(NSApp.windows.map(\.windowNumber))
+    growController.startManual()
+    RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+    let stages = [
+        ("hud-1-line.png", "So the plan for this week is"),
+        ("hud-2-lines.png", "So the plan for this week is to finish the onboarding flow, then review the pricing"),
+        ("hud-3-lines.png", "So the plan for this week is to finish the onboarding flow, then review the pricing page with the team, and after that we should"),
+        ("hud-5-lines.png", "So the plan for this week is to finish the onboarding flow, then review the pricing page with the team, and after that we should probably look at the support backlog, because it has been growing quite a bit lately and nobody owns it"),
+    ]
+    if let growPanel = NSApp.windows.first(where: { !beforeGrow.contains($0.windowNumber) && $0.isVisible }) {
+        for (name, text) in stages {
+            talker.say(text)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+            try capture(growPanel, name)
+            growPanel.orderFrontRegardless()
+        }
+    }
+    growController.cancelManual()
+
     let tourWindow = FeatureTour(hotkeyName: { "Right ⌥" }, hasCleanupKey: { false }, onSetUpCleanup: {})
     let beforeTour = Set(NSApp.windows.map(\.windowNumber))
     tourWindow.show()
@@ -1079,6 +1110,48 @@ case "hud-selftest":
     place("caret at the bottom edge", CGRect(x: 400, y: 20, width: 2, height: 18), .caret,
           expect: { $0.y >= 20 },
           describe: "flipped above the caret")
+
+    // The live transcript: grows one, two, three lines, then the oldest line
+    // leaves from the top — never a pinned first line with the second sliding.
+    let words = "so the plan for this week is to finish the onboarding flow then review the pricing page with the team and after that we should probably look at the support backlog because it has been growing quite a bit lately".split(separator: " ")
+    var transcript = ""
+    var seenLines: [Int] = []
+    var everCutBadly = false
+    for word in words {
+        transcript += (transcript.isEmpty ? "" : " ") + word
+        let fit = HUDLayout.tail(of: transcript)
+        if seenLines.last != fit.lines { seenLines.append(fit.lines) }
+        if !transcript.hasSuffix(fit.text) { everCutBadly = true }
+        // A cut must land at a word start, never mid-word.
+        if fit.text != transcript {
+            let cutAt = transcript.index(transcript.endIndex, offsetBy: -fit.text.count)
+            if transcript[transcript.index(before: cutAt)] != " " { everCutBadly = true }
+        }
+        // And the part shown must itself wrap to no more than three lines.
+        if HUDLayout.tail(of: fit.text, maxLines: 99).lines > HUDLayout.maxTranscriptLines { everCutBadly = true }
+    }
+    if seenLines != [1, 2, 3] {
+        hudFailures += 1; print("FAIL  line counts went \(seenLines), want [1, 2, 3]")
+    } else { print("  ok  grows 1 → 2 → 3 lines, then stays at 3") }
+    if everCutBadly {
+        hudFailures += 1; print("FAIL  the shown text was not the latest whole lines")
+    } else { print("  ok  always shows the newest words, cut at a word, within 3 lines") }
+    let h1 = HUDLayout.height(transcriptLines: 1, hint: false)
+    let h2 = HUDLayout.height(transcriptLines: 2, hint: false)
+    let h3 = HUDLayout.height(transcriptLines: 3, hint: false)
+    let h5 = HUDLayout.height(transcriptLines: 5, hint: false)
+    if !(h1 < h2 && h2 < h3 && h3 == h5) {
+        hudFailures += 1; print("FAIL  heights \(h1), \(h2), \(h3), \(h5)")
+    } else { print("  ok  the popup grows with each line and stops at three (\(Int(h1)) → \(Int(h2)) → \(Int(h3)))") }
+
+    // Reserving the full height below a caret means growing can't cover it.
+    let caretRect = CGRect(x: 500, y: 600, width: 2, height: 18)
+    let reserved = DictationHUD.origin(for: CaretLocator.Anchor(rect: caretRect, precision: .caret),
+                                       size: CGSize(width: HUDLayout.width, height: HUDLayout.maxHeight),
+                                       within: screenRect)
+    if reserved.y + HUDLayout.maxHeight > caretRect.minY {
+        hudFailures += 1; print("FAIL  at full height the popup would cover the caret")
+    } else { print("  ok  at full height the popup still stops below the caret") }
 
     print(hudFailures == 0 ? "all HUD placements pass" : "\(hudFailures) HUD placements FAILED")
     if hudFailures > 0 { exit(1) }

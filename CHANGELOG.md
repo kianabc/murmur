@@ -18,6 +18,12 @@ All notable changes are recorded here. Versions follow [semantic versioning](htt
 
 ## Unreleased
 
+### Fixed
+- **The live transcript no longer freezes its first line.** It used to keep the
+  top line fixed while the second slid sideways as you spoke. Now the popup grows
+  from one line to two to three, and after that the oldest line scrolls off the
+  top. It grows upward and never covers the line you're typing on.
+
 ### Changed
 - **When there's nowhere to type, the text is copied for you.** If the cursor
   isn't in a text field when you finish, Murmur puts the dictation on the

@@ -15,8 +15,10 @@ public final class DictationHUD {
     private let model = HUDModel()
     private var cancellables = Set<AnyCancellable>()
 
-    private static let width: CGFloat = 360
-    private static let height: CGFloat = 60
+    private static let width: CGFloat = HUDLayout.width
+    /// Where the panel's bottom edge sits. It grows upward from here, so the
+    /// edge nearest the text being typed stays still.
+    private var bottomLeft: CGPoint?
     /// Gap between the caret and the panel, so it never covers what you're typing.
     private static let gap: CGFloat = 10
 
@@ -42,7 +44,10 @@ public final class DictationHUD {
 
         controller.$partialText
             .receive(on: RunLoop.main)
-            .sink { [weak self] text in self?.model.text = text }
+            .sink { [weak self] text in
+                self?.model.text = text
+                self?.relayout()
+            }
             .store(in: &cancellables)
 
         controller.$level
@@ -59,6 +64,7 @@ public final class DictationHUD {
             ? "Press \(key) or Return to stop"
             : "Press \(key) to stop"
         model.state = state
+        relayout()
         switch state {
         case .idle:
             hide()
@@ -116,7 +122,7 @@ public final class DictationHUD {
 
     private func makePanel() -> NSPanel {
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: Self.width, height: Self.height),
+            contentRect: NSRect(x: 0, y: 0, width: Self.width, height: model.height),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -141,11 +147,44 @@ public final class DictationHUD {
 
     private func position(_ panel: NSPanel, at anchor: CaretLocator.Anchor) {
         let screen = NSScreen.screens.first { $0.frame.intersects(anchor.rect) } ?? NSScreen.main
-        panel.setFrameOrigin(Self.origin(
+        // Placed as if already at full height, then drawn at its current
+        // height from the same bottom edge. Growing upward into that reserved
+        // room can't cover the line being typed on or run off the screen.
+        bottomLeft = Self.origin(
             for: anchor,
-            size: CGSize(width: Self.width, height: Self.height),
+            size: CGSize(width: Self.width, height: HUDLayout.maxHeight),
             within: screen?.visibleFrame
-        ))
+        )
+        resize(panel)
+    }
+
+    private func resize(_ panel: NSPanel) {
+        guard let bottomLeft else { return }
+        let frame = NSRect(x: bottomLeft.x, y: bottomLeft.y, width: Self.width, height: model.height)
+        if panel.frame != frame { panel.setFrame(frame, display: true) }
+    }
+
+    /// What to show and how tall to be, for the current state and text.
+    private func relayout() {
+        switch model.state {
+        case .recording(let latched):
+            let fit = HUDLayout.tail(of: model.text.isEmpty ? "Listening…" : model.text)
+            model.shown = fit.text
+            model.height = HUDLayout.height(transcriptLines: fit.lines, hint: latched)
+        case .processing:
+            let fit = HUDLayout.tail(of: model.text.isEmpty ? "Transcribing…" : model.text)
+            model.shown = fit.text
+            model.height = HUDLayout.height(transcriptLines: fit.lines, hint: false)
+        case .failed(let reason):
+            model.shown = reason
+            model.height = HUDLayout.height(transcriptLines: min(2, HUDLayout.tail(of: reason).lines), hint: false)
+        case .notice(let title, _):
+            model.shown = title
+            model.height = HUDLayout.noticeHeight
+        case .idle:
+            return
+        }
+        if let panel, panel.isVisible { resize(panel) }
     }
 
     /// Where the panel goes. Pure geometry, no AppKit state, because this is the
@@ -194,14 +233,19 @@ final class HUDModel: ObservableObject {
     @Published var level: Float = 0
     /// How to stop a locked recording, named from the user's own settings.
     @Published var stopHint: String = ""
+    /// The part of the transcript that fits — the last few lines, cut at a line
+    /// start — and the height that makes room for it.
+    @Published var shown: String = ""
+    @Published var height: CGFloat = HUDLayout.height(transcriptLines: 1, hint: false)
 }
 
 private struct HUDView: View {
     @ObservedObject var model: HUDModel
 
     var body: some View {
-        HStack(spacing: 11) {
+        HStack(spacing: HUDLayout.spacing) {
             leading
+                .frame(width: HUDLayout.leadingWidth)
 
             if case .notice(let title, let detail) = model.state {
                 VStack(alignment: .leading, spacing: 2) {
@@ -215,19 +259,19 @@ private struct HUDView: View {
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
             } else {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(label)
-                    .font(.system(size: 13, weight: .medium, design: .rounded))
-                    .lineLimit(isLatched ? 1 : 2)
-                    .truncationMode(.head)
+            VStack(alignment: .leading, spacing: HUDLayout.hintSpacing) {
+                // Already cut to the lines that fit; wraps exactly as measured.
+                Text(model.shown)
+                    .font(Font(HUDLayout.transcriptFont))
+                    .lineLimit(isError ? 2 : HUDLayout.maxTranscriptLines)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(width: HUDLayout.textWidth, alignment: .leading)
                     .foregroundStyle(isError ? .red : .primary)
-                    // New words push in from the trailing edge rather than snapping.
-                    .animation(.easeOut(duration: 0.12), value: model.text)
                 // A locked recording runs until told to stop, so say how — with
                 // the user's own shortcut, not a generic "tap to stop".
                 if isLatched {
                     Text(model.stopHint)
-                        .font(.system(size: 11, weight: .regular, design: .rounded))
+                        .font(Font(HUDLayout.hintFont))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
@@ -235,9 +279,8 @@ private struct HUDView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .frame(width: 360, height: 60, alignment: .leading)
+        .padding(.horizontal, HUDLayout.horizontalPadding)
+        .frame(width: HUDLayout.width, height: model.height, alignment: .leading)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 13))
         .overlay(
             RoundedRectangle(cornerRadius: 13)
@@ -278,21 +321,6 @@ private struct HUDView: View {
         return false
     }
 
-    private var label: String {
-        switch model.state {
-        case .recording(let latched):
-            if !model.text.isEmpty { return model.text }
-            return "Listening…"
-        case .processing:
-            return model.text.isEmpty ? "Transcribing…" : model.text
-        case .failed(let reason):
-            return reason
-        case .notice(let title, _):
-            return title
-        case .idle:
-            return ""
-        }
-    }
 }
 
 /// Five bars that rise and fall with the microphone signal.
