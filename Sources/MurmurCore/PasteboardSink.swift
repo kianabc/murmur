@@ -28,6 +28,9 @@ public final class PasteboardSink: TextSink {
     private let pasteboard: NSPasteboard
     /// The ⌘V keystroke, replaceable for the same reason.
     public var performPaste: () -> Void = {}
+    /// What has focus, replaceable so the failure path can be tested without a
+    /// real app in front.
+    public var probeFocus: () -> FocusReading = { FocusProbe.probe() }
 
     public init(pasteboard: NSPasteboard = .general) {
         self.pasteboard = pasteboard
@@ -142,7 +145,7 @@ public final class PasteboardSink: TextSink {
         // kept in the recent list; nothing goes near the clipboard.
         if Permissions.isSecureInputActive {
             Log.echo("insert: not typed — a password field is focused")
-            return .notTyped(reason: "a password field is focused")
+            return copyOnly(text, reason: "a password field is focused")
         }
 
         // Two reasons to stop at the clipboard: the user asked for that, or we
@@ -166,10 +169,14 @@ public final class PasteboardSink: TextSink {
         // pastes. Whether there is anywhere to paste *at all* is a different
         // question, asked of the app before anything is sent, and an explicit
         // non-text role is a real answer rather than an absence of one.
-        let focus = FocusProbe.probe()
+        let focus = probeFocus()
         if case .notEditable(let role) = focus.focus {
             Log.echo("insert: nowhere to type — \(focus.description)")
-            return .notTyped(reason: "no text field focused (\(role))")
+            // Nowhere to type is now known reliably, before anything is sent —
+            // so this is the one case where taking over the clipboard is right:
+            // the paste has definitely failed, and the user's next move is ⌘V
+            // once they've clicked where they meant.
+            return copyOnly(text, reason: "no text field focused (\(role))")
         }
         // Recorded on every insert so the list of refusing roles can be widened
         // against what apps actually report, rather than what they ought to.

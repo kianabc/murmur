@@ -30,6 +30,11 @@ public struct FocusReading: Sendable {
     public let focus: EditableFocus
     /// What the element said about itself, for tuning the lists against reality.
     public let description: String
+
+    public init(focus: EditableFocus, description: String) {
+        self.focus = focus
+        self.description = description
+    }
 }
 
 public enum FocusProbe {

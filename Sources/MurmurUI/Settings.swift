@@ -432,7 +432,7 @@ private struct GeneralTab: View {
                     if model.insertion == .typeIntoApp {
                         Text(model.requireTextField
                              ? "Murmur won't start listening when there's nothing to type into, so the dictation is never made. Leave this off and it records anyway, then puts the text on your clipboard if it turns out there was nowhere to put it."
-                             : "If there's nowhere to type when you finish, Murmur says so and keeps the text under its menu bar icon — pick it there to have it typed again.")
+                             : "If there's nowhere to type when you finish, Murmur copies the text so you can click where it goes and press ⌘V. It's also kept under Type Again in the menu bar.")
                     }
                 }
                 .font(.caption).foregroundStyle(.secondary)

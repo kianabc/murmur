@@ -319,6 +319,10 @@ public final class DictationController: ObservableObject {
         }
     }
 
+    /// What the popup says when the text went to the clipboard instead. Paste is
+    /// ⌘V on every Mac keyboard layout, so it's named outright.
+    public static let copiedMessage = "Couldn't type that — it's copied. Click where it goes and press ⌘V to paste it."
+
     private func remember(_ text: String) {
         recent.insert(Transcript(text: text), at: 0)
         if recent.count > Self.recentLimit { recent.removeLast(recent.count - Self.recentLimit) }
@@ -334,7 +338,7 @@ public final class DictationController: ObservableObject {
             state = .idle
         case .copied(let reason):
             Log.echo("copied to clipboard — \(reason)")
-            state = .failed("Couldn't type that — copied. Press ⌘V")
+            state = .failed(Self.copiedMessage)
             resetSoon(after: 5)
         case .notTyped(let reason):
             Log.echo("not typed — \(reason)")

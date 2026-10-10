@@ -328,6 +328,25 @@ case "render-ui":
         try capture(panel, "hud-locked.png")
     }
 
+    final class SpeakingEngine: DictationEngine {
+        var onPartial: ((String) -> Void)?
+        var onLevel: ((Float) -> Void)?
+        func beginCapture() throws {}
+        func cancelCapture() {}
+        func finishCapture() async throws -> String { "remind me to call the vendor" }
+    }
+    final class CopySink: TextSink { func insert(_ text: String) throws -> InsertOutcome { .copied(reason: "test") } }
+    let copyHUDController = DictationController(engine: SpeakingEngine(), sink: CopySink(),
+                                                hotkeys: HotkeyMonitor(hotkey: .rightOption))
+    let copyHUD = DictationHUD(controller: copyHUDController)
+    _ = copyHUD
+    let beforeCopyHUD = Set(NSApp.windows.map(\.windowNumber))
+    copyHUDController.startManual(); RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+    copyHUDController.stopManual(); RunLoop.main.run(until: Date().addingTimeInterval(0.6))
+    if let panel = NSApp.windows.first(where: { !beforeCopyHUD.contains($0.windowNumber) && $0.isVisible }) {
+        try capture(panel, "hud-copied.png")
+    }
+
     let tourWindow = FeatureTour(hotkeyName: { "Right ⌥" }, hasCleanupKey: { false }, onSetUpCleanup: {})
     let beforeTour = Set(NSApp.windows.map(\.windowNumber))
     tourWindow.show()
@@ -461,6 +480,14 @@ case "fallback-selftest":
     fb(isIdle(controller), "a normal paste ends quietly, no message")
     spin(3.0)
     fb(isIdle(controller), "the earlier message's timer does not disturb the later state")
+
+    // 2b. The copied case names the paste shortcut.
+    let copySink = FakeSink()
+    copySink.outcome = .copied(reason: "no text field focused (AXGroup)")
+    let copyController = DictationController(engine: FakeEngine(), sink: copySink)
+    copyController.startManual(); spin(0.2); copyController.stopManual(); spin(0.5)
+    fb(message(copyController) == DictationController.copiedMessage, "copied: the popup says to press ⌘V")
+    fb(DictationController.copiedMessage.contains("⌘V"), "…by name")
 
     // 3. Type Again sends the chosen transcript back through the sink.
     sink.received = []
@@ -725,6 +752,30 @@ case "clipboard-selftest":
     RunLoop.main.run(until: Date().addingTimeInterval(0.4))
     cb(board.string(forType: .string) == "something the user copied earlier", "the previous clipboard is put back")
     cb(kliptWouldSkip(board), "…and the put-back is marked too, so it isn't recorded a second time")
+
+    // Nowhere to type: the paste has definitely failed, so — and only so — the
+    // text is left on the clipboard for the user to paste themselves.
+    let failSink = PasteboardSink(pasteboard: board)
+    var failPastes = 0
+    failSink.performPaste = { failPastes += 1 }
+    failSink.probeFocus = { FocusReading(focus: .notEditable(role: "AXGroup"), description: "test") }
+    board.clearContents(); board.setString("what they had before", forType: .string)
+    let failOutcome = try failSink.insert("text with nowhere to go")
+    if case .copied = failOutcome { cb(true, "nowhere to type: reported as copied") } else { cb(false, "nowhere to type: reported as copied (got \(failOutcome))") }
+    cb(failPastes == 0, "…no ⌘V is sent into nowhere")
+    RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+    cb(board.string(forType: .string) == "text with nowhere to go", "…the text stays on the clipboard, not restored away")
+    cb(!kliptWouldSkip(board), "…unmarked, since it's meant to be pasted")
+
+    // And a normal paste never leaves anything behind.
+    let okSink = PasteboardSink(pasteboard: board)
+    okSink.performPaste = {}
+    okSink.probeFocus = { FocusReading(focus: .editable, description: "test") }
+    board.clearContents(); board.setString("what they had before", forType: .string)
+    let okOutcome = try okSink.insert("pasted fine")
+    cb(okOutcome == .typed, "a field to type into: reported as typed")
+    RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+    cb(board.string(forType: .string) == "what they had before", "…and their clipboard is put back as it was")
 
     // The setting the user chooses on purpose: those copies are meant to stay,
     // and a clipboard manager keeping them is right.

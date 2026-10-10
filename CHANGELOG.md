@@ -16,6 +16,15 @@ All notable changes are recorded here. Versions follow [semantic versioning](htt
   appearing — so it now checks whether it actually did, and builds a new one when
   it didn't.
 
+## Unreleased
+
+### Changed
+- **When there's nowhere to type, the text is copied for you.** If the cursor
+  isn't in a text field when you finish, Murmur puts the dictation on the
+  clipboard and says "Click where it goes and press ⌘V to paste it." This only
+  happens when typing has actually failed — every other time your clipboard is
+  left exactly as it was.
+
 ## [1.12.0] — 2026-10-08
 
 ### Added
