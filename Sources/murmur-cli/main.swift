@@ -486,8 +486,17 @@ case "fallback-selftest":
     copySink.outcome = .copied(reason: "no text field focused (AXGroup)")
     let copyController = DictationController(engine: FakeEngine(), sink: copySink)
     copyController.startManual(); spin(0.2); copyController.stopManual(); spin(0.5)
-    fb(message(copyController) == DictationController.copiedMessage, "copied: the popup says to press ⌘V")
-    fb(DictationController.copiedMessage.contains("⌘V"), "…by name")
+    var noticeShown = false
+    if case .notice(let title, let detail) = copyController.state {
+        noticeShown = title == DictationController.copiedTitle && detail == DictationController.copiedDetail
+    }
+    fb(noticeShown, "copied: a notice, not an error — \"\(DictationController.copiedTitle)\" / \"\(DictationController.copiedDetail)\"")
+    fb(DictationController.copiedDetail.contains("⌘V"), "…naming ⌘V")
+    copyController.startManual(); spin(0.2)
+    var startsOverNotice = false
+    if case .recording = copyController.state { startsOverNotice = true }
+    fb(startsOverNotice, "…and a new dictation starts straight over it")
+    copyController.stopManual(); spin(0.4)
 
     // 3. Type Again sends the chosen transcript back through the sink.
     sink.received = []

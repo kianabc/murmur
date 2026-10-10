@@ -6,11 +6,15 @@ public enum DictationState: Equatable, Sendable {
     case processing
     /// Something went wrong. We still fail toward raw text where we can.
     case failed(String)
+    /// Nothing went wrong, but there's something to do — the text is on the
+    /// clipboard, waiting to be pasted. Not dressed as an error, because the
+    /// words are safe.
+    case notice(title: String, detail: String)
 
     public var isActive: Bool {
         switch self {
         case .recording, .processing: true
-        case .idle, .failed: false
+        case .idle, .failed, .notice: false
         }
     }
 }
@@ -180,7 +184,7 @@ public final class DictationController: ObservableObject {
         switch state {
         case .idle:
             break
-        case .failed:
+        case .failed, .notice:
             // A message about the *last* attempt must never block the next one.
             // It sat on screen for two seconds and swallowed every press in the
             // meantime, which reads exactly like the app having died.
@@ -319,9 +323,11 @@ public final class DictationController: ObservableObject {
         }
     }
 
-    /// What the popup says when the text went to the clipboard instead. Paste is
-    /// ⌘V on every Mac keyboard layout, so it's named outright.
-    public static let copiedMessage = "Couldn't type that — it's copied. Click where it goes and press ⌘V to paste it."
+    /// What the popup says when the text went to the clipboard instead: what
+    /// happened, then what to do. Paste is ⌘V on every Mac keyboard layout, so
+    /// it's named outright.
+    public static let copiedTitle = "Copied to clipboard"
+    public static let copiedDetail = "Press ⌘V to paste it."
 
     private func remember(_ text: String) {
         recent.insert(Transcript(text: text), at: 0)
@@ -338,7 +344,7 @@ public final class DictationController: ObservableObject {
             state = .idle
         case .copied(let reason):
             Log.echo("copied to clipboard — \(reason)")
-            state = .failed(Self.copiedMessage)
+            state = .notice(title: Self.copiedTitle, detail: Self.copiedDetail)
             resetSoon(after: 5)
         case .notTyped(let reason):
             Log.echo("not typed — \(reason)")
@@ -352,7 +358,7 @@ public final class DictationController: ObservableObject {
     /// with the user's app.
     public func insertAgain(_ transcript: Transcript) {
         switch state {
-        case .idle, .failed: break
+        case .idle, .failed, .notice: break
         case .recording, .processing: return
         }
         Log.echo("typing again: \(transcript.text.count) chars from \(transcript.date)")
@@ -400,7 +406,10 @@ public final class DictationController: ObservableObject {
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(seconds))
             guard generation == resetGeneration else { return }
-            if case .failed = state { state = .idle }
+            switch state {
+            case .failed, .notice: state = .idle
+            default: break
+            }
         }
     }
     private var resetGeneration: UInt64 = 0

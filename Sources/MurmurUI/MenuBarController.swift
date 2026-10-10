@@ -64,6 +64,7 @@ public final class MenuBarController {
         case .recording(let latched): button.toolTip = latched ? "Recording (latched)" : "Recording"
         case .processing: button.toolTip = "Transcribing…"
         case .failed(let reason): button.toolTip = reason
+        case .notice(let title, let detail): button.toolTip = "\(title) — \(detail)"
         }
     }
 
@@ -74,6 +75,8 @@ public final class MenuBarController {
         case .recording(let latched): name = latched ? "mic.badge.plus" : "mic.fill"
         case .processing: name = "waveform"
         case .failed: name = "mic.slash"
+        // Nothing failed; the mic is fine. Keep the resting icon.
+        case .notice: name = "mic"
         }
         return NSImage(systemSymbolName: name, accessibilityDescription: "Murmur")
     }
@@ -186,11 +189,13 @@ public final class MenuBarController {
         case .idle:
             title = controller.isListening ? "Ready — hold \(controller.hotkey.displayName)" : "Not listening"
         case .recording(let latched):
-            title = latched ? "Recording (tap fn to stop)" : "Recording…"
+            title = latched ? "Recording — tap \(controller.hotkey.displayName) to stop" : "Recording…"
         case .processing:
             title = "Transcribing…"
         case .failed(let reason):
             title = reason
+        case .notice(let noticeTitle, let detail):
+            title = "\(noticeTitle) — \(detail)"
         }
         let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         item.isEnabled = false

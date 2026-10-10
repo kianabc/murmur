@@ -62,7 +62,7 @@ public final class DictationHUD {
         switch state {
         case .idle:
             hide()
-        case .recording, .processing, .failed:
+        case .recording, .processing, .failed, .notice:
             show(anchor: anchor)
         }
     }
@@ -203,6 +203,18 @@ private struct HUDView: View {
         HStack(spacing: 11) {
             leading
 
+            if case .notice(let title, let detail) = model.state {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.primary)
+                    Text(detail)
+                        .font(.system(size: 12, weight: .regular, design: .rounded))
+                        .foregroundStyle(.secondary)
+                }
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
             VStack(alignment: .leading, spacing: 2) {
                 Text(label)
                     .font(.system(size: 13, weight: .medium, design: .rounded))
@@ -221,6 +233,7 @@ private struct HUDView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -242,6 +255,13 @@ private struct HUDView: View {
             ThinkingDots()
         case .failed:
             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
+        case .notice:
+            // The app accent, in a soft tile — information, not alarm.
+            Image(systemName: "doc.on.clipboard")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(.tint)
+                .frame(width: 28, height: 28)
+                .background(.tint.opacity(0.16), in: RoundedRectangle(cornerRadius: 7))
         case .idle:
             EmptyView()
         }
@@ -266,6 +286,8 @@ private struct HUDView: View {
             return model.text.isEmpty ? "Transcribing…" : model.text
         case .failed(let reason):
             return reason
+        case .notice(let title, _):
+            return title
         case .idle:
             return ""
         }
