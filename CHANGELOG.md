@@ -16,7 +16,7 @@ All notable changes are recorded here. Versions follow [semantic versioning](htt
   appearing — so it now checks whether it actually did, and builds a new one when
   it didn't.
 
-## Unreleased
+## [1.13.0] — 2026-10-29
 
 ### Fixed
 - **Murmur works on a docking station.** It used to record only from your Mac's
