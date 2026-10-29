@@ -3,6 +3,7 @@ import ApplicationServices
 import Foundation
 import MurmurASR
 import AVFoundation
+import CoreAudio
 import MurmurAudio
 import MurmurCleanup
 import MurmurCore
@@ -632,6 +633,80 @@ case "stuck-selftest":
 
     print(stuckFailures == 0 ? "it cannot get stuck that way" : "\(stuckFailures) stuck cases FAILED")
     if stuckFailures > 0 { exit(1) }
+
+case "mic-selftest":
+    // Which microphone gets used, across dock arrangements, then the fallback
+    // run for real: a device that can't record is tried first and the built-in
+    // microphone has to take over.
+    var micFails = 0
+    func mc(_ ok: Bool, _ what: String) {
+        if ok { print("  ok  \(what)") } else { micFails += 1; print("FAIL  \(what)") }
+    }
+    func dev(_ id: UInt32, _ name: String, _ t: AudioInputDevice.Transport, ch: Int = 1, rate: Double = 48000) -> AudioInputDevice {
+        AudioInputDevice(id: id, uid: "uid-\(id)", name: name, transport: t, inputChannels: ch, sampleRate: rate)
+    }
+    let builtIn = dev(1, "MacBook Pro Microphone", .builtIn)
+    let teams = dev(2, "Microsoft Teams Audio", .virtual)
+    let dockDead = dev(3, "CalDigit TS4 Audio", .usb, ch: 0)
+    let dockJack = dev(4, "CalDigit TS4 Audio", .usb, ch: 2)
+    let dockZeroRate = dev(5, "OWC Dock Audio", .usb, ch: 2, rate: 0)
+    let headset = dev(6, "Jabra Evolve", .usb)
+    let names: ([AudioInputDevice]) -> [String] = { $0.map(\.name) }
+
+    mc(names(AudioDevices.candidates(preferredUID: nil, defaultID: 3, devices: [builtIn, teams, dockDead]))
+       == ["MacBook Pro Microphone"], "dock default with no channels: skipped, built-in used")
+    mc(names(AudioDevices.candidates(preferredUID: nil, defaultID: 5, devices: [builtIn, dockZeroRate]))
+       == ["MacBook Pro Microphone"], "dock default with no sample rate: skipped, built-in used")
+    mc(names(AudioDevices.candidates(preferredUID: nil, defaultID: 4, devices: [builtIn, dockJack]))
+       == ["CalDigit TS4 Audio", "MacBook Pro Microphone"], "dock default with a jack: tried first, built-in as fallback")
+    mc(!AudioDevices.candidates(preferredUID: nil, defaultID: 1, devices: [builtIn, teams]).contains(teams),
+       "virtual devices are never an automatic fallback (they record silence)")
+    mc(AudioDevices.candidates(preferredUID: "uid-2", defaultID: 1, devices: [builtIn, teams]).first == teams,
+       "…but are used when picked by hand")
+    mc(names(AudioDevices.candidates(preferredUID: "uid-6", defaultID: 4, devices: [builtIn, dockJack, headset]))
+       == ["Jabra Evolve", "CalDigit TS4 Audio", "MacBook Pro Microphone"], "a picked headset comes first")
+    mc(names(AudioDevices.candidates(preferredUID: "uid-99", defaultID: 1, devices: [builtIn, headset]))
+       == ["MacBook Pro Microphone", "Jabra Evolve"], "a picked device that's unplugged: automatic order")
+
+    let real = AudioDevices.inputs()
+    print("  this Mac: \(real.map { "\($0.name) [\($0.transport.rawValue), \($0.inputChannels)ch]" }.joined(separator: ", "))")
+    mc(real.contains { $0.transport == .builtIn }, "the built-in microphone is found")
+    mc(real.allSatisfy { $0.inputChannels > 0 }, "output-only devices (speakers) are left out")
+
+    // The real fallback: the speakers, dressed up as a microphone, go first.
+    var outID = AudioDeviceID(0)
+    var outAddr = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+                                             mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+    var outSize = UInt32(MemoryLayout<AudioDeviceID>.size)
+    AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &outAddr, 0, nil, &outSize, &outID)
+    if let realMic = real.first(where: { $0.transport == .builtIn }), outID != 0 {
+        let impostor = AudioInputDevice(id: outID, uid: "impostor", name: "Speakers posing as a mic",
+                                        transport: .usb, inputChannels: 1, sampleRate: 48000)
+        let cap = AudioCapture()
+        cap.setTargetFormat(AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16000, channels: 1, interleaved: false)!)
+        cap.candidateOverride = [impostor, realMic]
+        let heard = BufferCounter()
+        cap.onBuffer = { _ in heard.bump() }
+        do {
+            try cap.warmUp()
+            _ = try cap.beginCapture()
+            let until = Date().addingTimeInterval(3)
+            while heard.count == 0 && Date() < until { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+            mc(cap.currentDevice?.uid == realMic.uid, "a device that can't record is passed over for “\(realMic.name)”")
+            mc(heard.count > 0, "…and audio actually arrives from it")
+            cap.endCapture(); cap.shutDown()
+        } catch {
+            mc(false, "fallback threw: \(error.localizedDescription)")
+        }
+
+        let doomed = AudioCapture()
+        doomed.candidateOverride = [impostor]
+        do { try doomed.warmUp(); mc(false, "a lone unusable device should fail"); doomed.shutDown() }
+        catch { mc(error.localizedDescription.contains("Speakers posing as a mic"), "when nothing works, the message names the device: \(error.localizedDescription)") }
+    }
+
+    print(micFails == 0 ? "the right microphone gets used" : "\(micFails) microphone cases FAILED")
+    if micFails > 0 { exit(1) }
 
 case "correct-selftest":
     // Right-click → Correct with Murmur…, through the real handler with only

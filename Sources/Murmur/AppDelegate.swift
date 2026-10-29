@@ -238,6 +238,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menuBar.onFixWord = { [weak self] in self?.fixAWord() }
         settings?.onInstallUpdate = { [weak self] update in self?.offerUpdate(update) }
         settings?.onShowTour = { [weak self] in self?.showTour() }
+        settings?.onMicrophoneChange = { [weak self] in
+            Log.echo("microphone choice: \(MicrophoneChoice.selectedUID == nil ? "automatic" : "picked")")
+            self?.speechEngine?.reselectMicrophone()
+        }
         menuBar.onShowSettings = { [weak self] in
             guard let self else { return }
             // Show the raw transcript, not the corrected one — that's the text

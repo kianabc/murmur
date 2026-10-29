@@ -16,6 +16,22 @@ All notable changes are recorded here. Versions follow [semantic versioning](htt
   appearing — so it now checks whether it actually did, and builds a new one when
   it didn't.
 
+## Unreleased
+
+### Fixed
+- **Murmur works on a docking station.** It used to record only from your Mac's
+  default sound input, and plugging in a dock often makes the dock's own audio
+  the default — usually an empty audio jack — so dictation failed with an audio
+  error. Murmur now tries that input first and, if it won't work, falls back to
+  the built-in microphone on its own.
+
+### Added
+- **Choose your microphone** under Settings → General → Microphone, or leave it
+  on Automatic. If the one you picked is unplugged, Murmur uses Automatic until
+  it's back.
+- If a dictation hears nothing at all from an external microphone, the message
+  names it — "Heard nothing from …" — instead of asking you to speak up.
+
 ## [1.12.1] — 2026-10-09
 
 ### Fixed

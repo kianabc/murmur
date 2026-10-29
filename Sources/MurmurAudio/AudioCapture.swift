@@ -6,11 +6,20 @@ import MurmurCore
 public enum AudioError: LocalizedError {
     case engineUnavailable
     case formatUnsupported(String)
+    /// Every microphone tried refused to start. Names them, because "could not
+    /// start the audio engine" gives the user nothing to act on.
+    case noUsableMicrophone(tried: [String])
 
     public var errorDescription: String? {
         switch self {
         case .engineUnavailable: "Could not start the audio engine"
         case .formatUnsupported(let detail): "Unsupported audio format: \(detail)"
+        case .noUsableMicrophone(let tried):
+            if let only = tried.first, tried.count == 1 {
+                "Couldn't record from “\(only)” — choose a microphone in Settings → General"
+            } else {
+                "Couldn't find a working microphone — choose one in Settings → General"
+            }
         }
     }
 }
@@ -93,11 +102,61 @@ public final class AudioCapture {
     // MARK: - Engine lifecycle
 
     /// Start the engine and leave it running for the life of the app.
+    /// The microphone in use, once one has started.
+    public private(set) var currentDevice: AudioInputDevice?
+
+    /// For tests: the order to try, instead of asking the system.
+    public var candidateOverride: [AudioInputDevice]?
+
+    /// Starts on the first microphone that will actually start.
+    ///
+    /// Murmur used to use the macOS default input and nothing else. A dock's own
+    /// audio chip often becomes the default when it's plugged in — usually an
+    /// input jack with nothing in it — and then dictation simply didn't work.
     public func warmUp() throws {
         guard !isWarm else { return }
-        let startedAt = Date()
+        let candidates = candidateOverride ?? AudioDevices.candidates(
+            preferredUID: MicrophoneChoice.selectedUID,
+            defaultID: AudioDevices.defaultInputID(),
+            devices: AudioDevices.inputs()
+        )
+        // If CoreAudio can't be asked, fall back to the old behaviour rather
+        // than refuse outright.
+        guard !candidates.isEmpty else { return try start(on: nil) }
 
+        var tried: [String] = []
+        for device in candidates {
+            do {
+                try start(on: device)
+                if !tried.isEmpty {
+                    Log.echo("audio: fell back to “\(device.name)” after \(tried.map { "“\($0)”" }.joined(separator: ", ")) failed")
+                }
+                return
+            } catch {
+                tried.append(device.name)
+                Log.echo("audio: “\(device.name)” (\(device.transport.rawValue)) wouldn't start — \(error.localizedDescription)")
+            }
+        }
+        throw AudioError.noUsableMicrophone(tried: tried)
+    }
+
+    private func start(on device: AudioInputDevice?) throws {
+        let startedAt = Date()
         let input = engine.inputNode
+
+        if let device {
+            // Point the input at this device before reading its format; the
+            // format follows the device.
+            var deviceID = device.id
+            guard let unit = input.audioUnit else { throw AudioError.engineUnavailable }
+            let status = AudioUnitSetProperty(
+                unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0,
+                &deviceID, UInt32(MemoryLayout<AudioDeviceID>.size)
+            )
+            guard status == noErr else {
+                throw AudioError.formatUnsupported("couldn't select the device (\(status))")
+            }
+        }
 
         // Apple's AEC and noise suppression, opt-in. It reshapes the input bus
         // on this hardware — a 3-channel mic array becomes 7 or 9 channels, and
@@ -122,6 +181,10 @@ public final class AudioCapture {
         guard inputFormat.sampleRate > 0 else {
             throw AudioError.formatUnsupported("input reports a zero sample rate")
         }
+        // A device that accepted the selection but has nothing to record from.
+        guard inputFormat.channelCount > 0 else {
+            throw AudioError.formatUnsupported("input has no channels")
+        }
 
         // Install with a nil format so the tap uses whatever the bus is actually
         // running. Enabling voice processing can change the input format out from
@@ -143,12 +206,16 @@ public final class AudioCapture {
             throw AudioError.engineUnavailable
         }
         isWarm = true
+        currentDevice = device
         noteBuffer()
         let targetDesc = targetFormat.map { "\(Int($0.sampleRate))Hz/\($0.channelCount)ch" } ?? "passthrough"
+        // Which microphone, by name — the first thing to know when someone
+        // says it doesn't work on their setup.
+        let which = device.map { " · “\($0.name)” (\($0.transport.rawValue))" } ?? " · system default"
         Log.echo(String(
-            format: "audio: engine open in %.0fms · %dHz/%dch → %@",
+            format: "audio: engine open in %.0fms · %dHz/%dch → %@%@",
             Date().timeIntervalSince(startedAt) * 1000,
-            Int(inputFormat.sampleRate), Int(inputFormat.channelCount), targetDesc
+            Int(inputFormat.sampleRate), Int(inputFormat.channelCount), targetDesc, which
         ))
 
         observeInterruptions()
@@ -186,6 +253,13 @@ public final class AudioCapture {
         lock.lock()
         lastBufferAt = Date()
         lock.unlock()
+    }
+
+    /// Use the microphone chosen in Settings now, if the engine is open. When
+    /// it isn't, the next dictation picks it up anyway.
+    public func reselectMicrophone() {
+        guard isWarm else { return }
+        restart(reason: "microphone changed in Settings")
     }
 
     public func shutDown() {

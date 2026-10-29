@@ -21,6 +21,10 @@ public enum DictationState: Equatable, Sendable {
 
 /// Produces a transcript from captured audio.
 public protocol DictationEngine: AnyObject {
+    /// Set after a capture that ran for a while and heard nothing at all from a
+    /// microphone other than the built-in one — a dock's empty input jack, say.
+    /// Lets the message name the device instead of telling someone to speak up.
+    var silentDeviceName: String? { get }
     func beginCapture() throws
     func cancelCapture()
     /// Stop capturing and return the raw transcript. Cleanup happens later (M3).
@@ -41,6 +45,10 @@ public enum InsertOutcome: Equatable, Sendable {
     case copied(reason: String)
     /// Not typed anywhere, and why. The text is kept in the recent list.
     case notTyped(reason: String)
+}
+
+public extension DictationEngine {
+    var silentDeviceName: String? { nil }
 }
 
 /// Carries a result out of a `Deadline.race` closure.
@@ -303,7 +311,13 @@ public final class DictationController: ObservableObject {
                     // Silently returning to idle is indistinguishable from a
                     // broken hotkey. Say that nothing was heard.
                     Log.echo("no speech detected — nothing to insert")
-                    state = .failed("Didn't catch that — try speaking a little louder")
+                    if let device = engine.silentDeviceName {
+                        // Not quiet speech: no sound reached Murmur at all, from
+                        // a microphone that isn't the built-in one.
+                        state = .failed("Heard nothing from “\(device)” — choose a microphone in Settings → General")
+                    } else {
+                        state = .failed("Didn't catch that — try speaking a little louder")
+                    }
                     partialText = ""
                     resetSoon()
                     return

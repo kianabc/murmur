@@ -29,6 +29,28 @@ public final class SettingsModel: ObservableObject {
     }
     @Published var requireTextField: Bool { didSet { FocusGatePreference.isEnabled = requireTextField } }
 
+    /// "" is Automatic.
+    @Published var microphoneUID: String = MicrophoneChoice.selectedUID ?? "" {
+        didSet {
+            guard microphoneUID != oldValue else { return }
+            MicrophoneChoice.selectedUID = microphoneUID.isEmpty ? nil : microphoneUID
+            onMicrophoneChange?()
+        }
+    }
+    @Published var microphones: [AudioInputDevice] = []
+    var onMicrophoneChange: (() -> Void)?
+
+    /// What Automatic would use right now, for its label.
+    var automaticMicrophoneName: String {
+        AudioDevices.candidates(preferredUID: nil, defaultID: AudioDevices.defaultInputID(), devices: microphones)
+            .first?.name ?? "none found"
+    }
+
+    /// A picked microphone that has been unplugged since.
+    var pickedMicrophoneIsMissing: Bool {
+        !microphoneUID.isEmpty && !microphones.contains { $0.uid == microphoneUID }
+    }
+
     // Cleanup — the key is written on commit, never from a view update.
     @Published var apiKey = ""
     @Published var hasStoredKey = false
@@ -188,6 +210,9 @@ public final class SettingsModel: ObservableObject {
         if chosen != cleanupModel { cleanupModel = chosen }
         cleanupEnabled = CleanupPreference.isEnabled
         launchAtLogin = LaunchAtLogin.state
+        // Re-read every time Settings comes forward: docks and headsets come
+        // and go while it's closed.
+        microphones = AudioDevices.inputs()
 
         if let usage {
             let cal = Calendar.current
@@ -403,6 +428,16 @@ private struct GeneralTab: View {
             }
 
             Section {
+                Picker("Microphone", selection: $model.microphoneUID) {
+                    Text("Automatic (\(model.automaticMicrophoneName))").tag("")
+                    if !model.microphones.isEmpty { Divider() }
+                    ForEach(model.microphones) { mic in
+                        Text(mic.isUsable ? mic.name : "\(mic.name) — not available").tag(mic.uid)
+                    }
+                    if model.pickedMicrophoneIsMissing {
+                        Text("Not connected").tag(model.microphoneUID)
+                    }
+                }
                 Picker("Keep the microphone open", selection: $model.micPolicy) {
                     ForEach(MicrophonePolicy.allCases, id: \.self) { Text($0.displayName).tag($0) }
                 }
@@ -410,9 +445,14 @@ private struct GeneralTab: View {
             } header: {
                 Text("Microphone")
             } footer: {
-                Text(model.micPolicy.detail)
-                    .font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(model.pickedMicrophoneIsMissing
+                         ? "The microphone you picked isn't connected, so Murmur is using the automatic choice until it's back."
+                         : "Automatic uses your Mac's sound input, and falls back to the built-in microphone if that one won't work — a dock's empty audio jack, say.")
+                    Text(model.micPolicy.detail)
+                }
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             }
 
             Section {
@@ -878,6 +918,7 @@ public final class SettingsWindowController {
     public var onMicPolicyChange: ((MicrophonePolicy) -> Void)?
     public var onInstallUpdate: ((AvailableUpdate) -> Void)?
     public var onShowTour: (() -> Void)?
+    public var onMicrophoneChange: (() -> Void)?
 
     /// Built on first `show()`, never at launch. `SettingsModel.init` reads the
     /// API key from the Keychain, and a Keychain read can raise a modal prompt —
@@ -891,6 +932,7 @@ public final class SettingsWindowController {
         created.onMicPolicyChange = { [weak self] policy in self?.onMicPolicyChange?(policy) }
         created.onInstallUpdate = { [weak self] update in self?.onInstallUpdate?(update) }
         created.onShowTour = { [weak self] in self?.onShowTour?() }
+        created.onMicrophoneChange = { [weak self] in self?.onMicrophoneChange?() }
         _model = created
         return created
     }

@@ -229,8 +229,24 @@ public final class SpeechAnalyzerEngine: DictationEngine {
         return buffersSent
     }
 
+    public private(set) var silentDeviceName: String?
+
+    /// Which microphone is recording, for Settings and the log.
+    public var currentMicrophone: AudioInputDevice? { capture.currentDevice }
+
+    /// Use the microphone chosen in Settings, now if it's open.
+    public func reselectMicrophone() { capture.reselectMicrophone() }
+
     public func finishCapture() async throws -> String {
         let level = capture.levelReport()
+        // A tenth of a second or more of buffers, every one of them silent, from
+        // something other than the built-in mic: the device is the problem.
+        if bufferCount >= 10, level.peak < 0.001,
+           let device = capture.currentDevice, device.transport != .builtIn {
+            silentDeviceName = device.name
+        } else {
+            silentDeviceName = nil
+        }
         Log.echo(String(
             format: "engine: finish · %d buffers · %.1fs · peak %.3f%@",
             bufferCount, level.seconds, level.peak,
