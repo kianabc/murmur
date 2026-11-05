@@ -16,7 +16,7 @@ All notable changes are recorded here. Versions follow [semantic versioning](htt
   appearing — so it now checks whether it actually did, and builds a new one when
   it didn't.
 
-## Unreleased
+## [1.13.1] — 2026-11-05
 
 ### Fixed
 - **Bluetooth headsets now work.** Murmur's audio was timed by your Mac's
