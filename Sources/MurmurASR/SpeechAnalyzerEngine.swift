@@ -229,7 +229,12 @@ public final class SpeechAnalyzerEngine: DictationEngine {
         return buffersSent
     }
 
-    public private(set) var silentDeviceName: String?
+    public private(set) var noAudioExplanation: String?
+
+    public var onMicrophoneStatus: ((MicrophoneStatus) -> Void)? {
+        get { capture.onMicrophoneStatus }
+        set { capture.onMicrophoneStatus = newValue }
+    }
 
     /// Which microphone is recording, for Settings and the log.
     public var currentMicrophone: AudioInputDevice? { capture.currentDevice }
@@ -237,16 +242,37 @@ public final class SpeechAnalyzerEngine: DictationEngine {
     /// Use the microphone chosen in Settings, now if it's open.
     public func reselectMicrophone() { capture.reselectMicrophone() }
 
+    /// Why nothing was transcribed, when it wasn't quiet speech. Pure, so each
+    /// case is testable.
+    public static func explainSilence(
+        buffers: Int, peak: Float, stillConnecting: String?,
+        failedToConnect: String?, device: AudioInputDevice?
+    ) -> String? {
+        if buffers == 0 {
+            if let name = stillConnecting {
+                return "“\(name)” was still connecting — wait for “Listening…”, then talk"
+            }
+            if let name = failedToConnect {
+                return "“\(name)” didn't start — try again, or pick another microphone in Settings"
+            }
+            return "No sound reached Murmur — try again"
+        }
+        // A tenth of a second or more of buffers, every one silent, from
+        // something other than the built-in mic: the device is the problem.
+        if buffers >= 10, peak < 0.001, let device, device.transport != .builtIn {
+            return "Heard nothing from “\(device.name)” — choose a microphone in Settings → General"
+        }
+        return nil
+    }
+
     public func finishCapture() async throws -> String {
         let level = capture.levelReport()
-        // A tenth of a second or more of buffers, every one of them silent, from
-        // something other than the built-in mic: the device is the problem.
-        if bufferCount >= 10, level.peak < 0.001,
-           let device = capture.currentDevice, device.transport != .builtIn {
-            silentDeviceName = device.name
-        } else {
-            silentDeviceName = nil
-        }
+        noAudioExplanation = Self.explainSilence(
+            buffers: bufferCount, peak: level.peak,
+            stillConnecting: capture.connectingDeviceName,
+            failedToConnect: capture.failedToConnect,
+            device: capture.currentDevice
+        )
         Log.echo(String(
             format: "engine: finish · %d buffers · %.1fs · peak %.3f%@",
             bufferCount, level.seconds, level.peak,

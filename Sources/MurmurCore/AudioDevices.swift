@@ -150,3 +150,13 @@ public enum MicrophoneChoice {
         set { UserDefaults.standard.set(newValue, forKey: key) }
     }
 }
+
+/// What the microphone is doing, for the popup.
+public enum MicrophoneStatus: Equatable, Sendable {
+    case ready
+    /// A Bluetooth headset switching from music mode into call mode, which takes
+    /// a second or two before it can record.
+    case connecting(String)
+    /// The chosen microphone didn't start, and another took over.
+    case fellBack(from: String, to: String)
+}

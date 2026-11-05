@@ -42,6 +42,14 @@ public final class DictationHUD {
             }
             .store(in: &cancellables)
 
+        controller.$microphoneStatus
+            .receive(on: RunLoop.main)
+            .sink { [weak self] status in
+                self?.model.micStatus = status
+                self?.relayout()
+            }
+            .store(in: &cancellables)
+
         controller.$partialText
             .receive(on: RunLoop.main)
             .sink { [weak self] text in
@@ -168,9 +176,23 @@ public final class DictationHUD {
     private func relayout() {
         switch model.state {
         case .recording(let latched):
-            let fit = HUDLayout.tail(of: model.text.isEmpty ? "Listening…" : model.text)
+            // While a headset switches into call mode it can't hear anything
+            // yet. Saying "Listening…" then is how the first words got lost.
+            var placeholder = "Listening…"
+            if case .connecting(let name) = model.micStatus { placeholder = "Connecting to \(name)…" }
+            let fit = HUDLayout.tail(of: model.text.isEmpty ? placeholder : model.text)
             model.shown = fit.text
-            model.height = HUDLayout.height(transcriptLines: fit.lines, hint: latched)
+            switch model.micStatus {
+            case .connecting:
+                model.hint = "Start talking when this says Listening"
+            case .fellBack(_, let to):
+                // Device names run long; the one that failed is the one they
+                // picked, so naming the replacement is enough to explain it.
+                model.hint = latched ? model.stopHint : "Using \(to) instead"
+            case .ready:
+                model.hint = latched ? model.stopHint : ""
+            }
+            model.height = HUDLayout.height(transcriptLines: fit.lines, hint: !model.hint.isEmpty)
         case .processing:
             let fit = HUDLayout.tail(of: model.text.isEmpty ? "Transcribing…" : model.text)
             model.shown = fit.text
@@ -237,6 +259,10 @@ final class HUDModel: ObservableObject {
     /// start — and the height that makes room for it.
     @Published var shown: String = ""
     @Published var height: CGFloat = HUDLayout.height(transcriptLines: 1, hint: false)
+    @Published var micStatus: MicrophoneStatus = .ready
+    /// The second line under the transcript: how to stop a locked recording,
+    /// or which microphone is actually being used.
+    @Published var hint: String = ""
 }
 
 private struct HUDView: View {
@@ -269,8 +295,8 @@ private struct HUDView: View {
                     .foregroundStyle(isError ? .red : .primary)
                 // A locked recording runs until told to stop, so say how — with
                 // the user's own shortcut, not a generic "tap to stop".
-                if isLatched {
-                    Text(model.stopHint)
+                if !model.hint.isEmpty, isRecording {
+                    Text(model.hint)
                         .font(Font(HUDLayout.hintFont))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -294,6 +320,7 @@ private struct HUDView: View {
         switch model.state {
         case .recording:
             LevelMeter(level: model.level)
+                .opacity(isConnecting ? 0.35 : 1)
         case .processing:
             ThinkingDots()
         case .failed:
@@ -309,6 +336,16 @@ private struct HUDView: View {
         case .idle:
             EmptyView()
         }
+    }
+
+    private var isConnecting: Bool {
+        if case .connecting = model.micStatus { return true }
+        return false
+    }
+
+    private var isRecording: Bool {
+        if case .recording = model.state { return true }
+        return false
     }
 
     private var isLatched: Bool {

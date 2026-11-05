@@ -49,15 +49,44 @@ public final class AudioCapture {
     /// the UI reacts to the actual voice rather than faking activity.
     public var onLevel: ((Float) -> Void)?
 
+    /// Connecting, fallen back, or ready — called on the main thread.
+    public var onMicrophoneStatus: ((MicrophoneStatus) -> Void)?
+
+    /// How long a Bluetooth headset gets to switch into call mode before
+    /// another microphone is used. Most take under two seconds.
+    public var bluetoothPatience: TimeInterval = 3
+
+    /// For tests: replaces opening a real device.
+    public var deviceStarter: ((AudioInputDevice) throws -> Void)?
+
+    /// The headset being waited on, if any.
+    private var connecting: AudioInputDevice?
+    private var connectGeneration: UInt64 = 0
+    private var configChangeGeneration: UInt64 = 0
+    /// A device that never came up during the last capture.
+    public private(set) var failedToConnect: String?
+
+    public var connectingDeviceName: String? { connecting?.name ?? awaitingAudioName }
+
+    /// A Bluetooth headset that has started but not yet delivered audio. It
+    /// counts as connecting until sound arrives: on real Pixel Buds the engine
+    /// started at 1.2s but the first buffer came at 4.4s, after the headset had
+    /// finished settling into call mode.
+    private var awaitingAudioName: String? {
+        lock.lock(); defer { lock.unlock() }
+        return _awaitingAudioName
+    }
+    private var _awaitingAudioName: String?
+
     /// Must exceed the longest arming delay the hotkey offers (300ms), or the
     /// delay would start costing words instead of being free. The extra 300ms on
     /// top covers speaking a beat before pressing.
     private static let preRollSeconds: Double = 0.6
 
-    /// Off by default — see `warmUp()`.
-    public var useVoiceProcessing = false
 
-    private let engine = AVAudioEngine()
+    /// The open microphone. A direct, input-only connection — see DeviceInput
+    /// for why it isn't AVAudioEngine any more.
+    private var input: DeviceInput?
     private var converter: AVAudioConverter?
     private var targetFormat: AVAudioFormat?
 
@@ -114,7 +143,8 @@ public final class AudioCapture {
     /// audio chip often becomes the default when it's plugged in — usually an
     /// input jack with nothing in it — and then dictation simply didn't work.
     public func warmUp() throws {
-        guard !isWarm else { return }
+        guard !isWarm, connecting == nil else { return }
+        failedToConnect = nil
         let candidates = candidateOverride ?? AudioDevices.candidates(
             preferredUID: MicrophoneChoice.selectedUID,
             defaultID: AudioDevices.defaultInputID(),
@@ -124,90 +154,145 @@ public final class AudioCapture {
         // than refuse outright.
         guard !candidates.isEmpty else { return try start(on: nil) }
 
-        var tried: [String] = []
-        for device in candidates {
+        try startFirstWorking(candidates, tried: [])
+    }
+
+    private func startFirstWorking(_ candidates: [AudioInputDevice], tried: [String]) throws {
+        var tried = tried
+        for (index, device) in candidates.enumerated() {
             do {
-                try start(on: device)
-                if !tried.isEmpty {
+                try startDevice(device)
+                if let first = tried.first {
                     Log.echo("audio: fell back to “\(device.name)” after \(tried.map { "“\($0)”" }.joined(separator: ", ")) failed")
+                    report(.fellBack(from: first, to: device.name))
+                } else if device.transport == .bluetooth {
+                    report(.connecting(device.name))
+                } else {
+                    report(.ready)
                 }
                 return
             } catch {
-                tried.append(device.name)
                 Log.echo("audio: “\(device.name)” (\(device.transport.rawValue)) wouldn't start — \(error.localizedDescription)")
+                if device.transport == .bluetooth {
+                    // Not broken — switching. Opening a Bluetooth headset's
+                    // microphone makes macOS move it from music mode into call
+                    // mode, and until that finishes it can't be started. Falling
+                    // straight back meant a headset never got the chance.
+                    waitForBluetooth(device, then: Array(candidates.dropFirst(index + 1)), tried: tried + [device.name])
+                    return
+                }
+                tried.append(device.name)
             }
         }
         throw AudioError.noUsableMicrophone(tried: tried)
     }
 
+    private func startDevice(_ device: AudioInputDevice) throws {
+        if let deviceStarter {
+            try deviceStarter(device)
+            isWarm = true
+            currentDevice = device
+            noteBuffer()
+        } else {
+            try start(on: device)
+        }
+        if device.transport == .bluetooth {
+            lock.lock(); _awaitingAudioName = device.name; lock.unlock()
+        }
+    }
+
+    /// For tests: what the first buffer from the device would do.
+    public func simulateFirstAudio() { firstAudioArrived() }
+
+    private func firstAudioArrived() {
+        lock.lock()
+        let was = _awaitingAudioName
+        _awaitingAudioName = nil
+        lock.unlock()
+        guard let was else { return }
+        Log.echo("audio: “\(was)” is delivering sound")
+        report(.ready)
+    }
+
+    /// Retries a Bluetooth headset until it's in call mode, without holding up
+    /// the dictation: capture is already open and buffers flow the moment it
+    /// starts. Gives up after `bluetoothPatience` and moves to the next one.
+    private func waitForBluetooth(_ device: AudioInputDevice, then remaining: [AudioInputDevice], tried: [String]) {
+        connecting = device
+        connectGeneration &+= 1
+        let generation = connectGeneration
+        let startedAt = Date()
+        report(.connecting(device.name))
+        Log.echo("audio: waiting for “\(device.name)” to switch into headset mode")
+        retryBluetooth(device, remaining: remaining, tried: tried, generation: generation, startedAt: startedAt)
+    }
+
+    private func retryBluetooth(
+        _ device: AudioInputDevice, remaining: [AudioInputDevice], tried: [String],
+        generation: UInt64, startedAt: Date
+    ) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            guard let self, generation == self.connectGeneration, self.connecting != nil else { return }
+            do {
+                try self.startDevice(device)
+                self.connecting = nil
+                // Started, but stays "connecting" until sound actually arrives.
+                Log.echo(String(format: "audio: “%@” started after %.1fs", device.name, Date().timeIntervalSince(startedAt)))
+            } catch {
+                guard Date().timeIntervalSince(startedAt) < self.bluetoothPatience else {
+                    self.connecting = nil
+                    self.failedToConnect = device.name
+                    Log.echo("audio: “\(device.name)” didn't come up in \(Int(self.bluetoothPatience))s — trying the next microphone")
+                    do {
+                        try self.startFirstWorking(remaining, tried: tried)
+                    } catch {
+                        Log.echo("audio: no microphone would start — \(error.localizedDescription)")
+                    }
+                    return
+                }
+                self.retryBluetooth(device, remaining: remaining, tried: tried, generation: generation, startedAt: startedAt)
+            }
+        }
+    }
+
+    private func report(_ status: MicrophoneStatus) {
+        let callback = onMicrophoneStatus
+        if Thread.isMainThread { callback?(status) } else { DispatchQueue.main.async { callback?(status) } }
+    }
+
     private func start(on device: AudioInputDevice?) throws {
         let startedAt = Date()
-        let input = engine.inputNode
+        closeInput()
 
-        if let device {
-            // Point the input at this device before reading its format; the
-            // format follows the device.
-            var deviceID = device.id
-            guard let unit = input.audioUnit else { throw AudioError.engineUnavailable }
-            let status = AudioUnitSetProperty(
-                unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0,
-                &deviceID, UInt32(MemoryLayout<AudioDeviceID>.size)
-            )
-            guard status == noErr else {
-                throw AudioError.formatUnsupported("couldn't select the device (\(status))")
-            }
+        // Nil means "whatever macOS has as the default input" — used only when
+        // the device list can't be read at all.
+        guard let deviceID = device?.id ?? AudioDevices.defaultInputID() else {
+            throw AudioError.noUsableMicrophone(tried: [])
         }
-
-        // Apple's AEC and noise suppression, opt-in. It reshapes the input bus
-        // on this hardware — a 3-channel mic array becomes 7 or 9 channels, and
-        // the downmix through that layout is suspect. Correct audio matters more
-        // than echo cancellation, so it's off until the level check proves the
-        // signal survives it.
-        if useVoiceProcessing {
-            do {
-                try input.setVoiceProcessingEnabled(true)
-            } catch {
-                Log.echo("audio: voice processing unavailable — \(error.localizedDescription)")
-            }
-        }
-
-        var inputFormat = input.outputFormat(forBus: 0)
-        if let target = targetFormat, AVAudioConverter(from: inputFormat, to: target) == nil {
-            Log.echo("audio: no converter from \(inputFormat.channelCount) ch — disabling voice processing")
-            try? input.setVoiceProcessingEnabled(false)
-            inputFormat = input.outputFormat(forBus: 0)
-        }
-
-        guard inputFormat.sampleRate > 0 else {
-            throw AudioError.formatUnsupported("input reports a zero sample rate")
-        }
-        // A device that accepted the selection but has nothing to record from.
-        guard inputFormat.channelCount > 0 else {
-            throw AudioError.formatUnsupported("input has no channels")
-        }
-
-        // Install with a nil format so the tap uses whatever the bus is actually
-        // running. Enabling voice processing can change the input format out from
-        // under us, and a tap installed with a now-stale format silently never
-        // fires — which looks exactly like a broken microphone.
-        input.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
-            self?.handle(buffer)
-        }
-
-        engine.prepare()
+        let opened: DeviceInput
         do {
-            try engine.start()
+            opened = try DeviceInput(
+                deviceID: deviceID,
+                onBuffer: { [weak self] buffer in self?.handle(buffer) },
+                // Called on a CoreAudio queue; the decision happens on main.
+                onChange: { [weak self] in
+                    DispatchQueue.main.async { self?.configurationChanged() }
+                }
+            )
         } catch {
-            // Put it back to a known-stopped state. A half-started engine reports
-            // itself as running, and every later attempt would then no-op.
-            input.removeTap(onBus: 0)
-            engine.stop()
-            Log.echo("audio: engine failed to start — \(error)")
+            Log.echo("audio: couldn't open the microphone — \(error.localizedDescription)")
             throw AudioError.engineUnavailable
         }
+        input = opened
+        lock.lock()
+        converter = nil
+        hasLoggedConverterFailure = false
+        lock.unlock()
+
         isWarm = true
         currentDevice = device
         noteBuffer()
+        let inputFormat = opened.format
         let targetDesc = targetFormat.map { "\(Int($0.sampleRate))Hz/\($0.channelCount)ch" } ?? "passthrough"
         // Which microphone, by name — the first thing to know when someone
         // says it doesn't work on their setup.
@@ -220,6 +305,11 @@ public final class AudioCapture {
 
         observeInterruptions()
         startHealthWatch()
+    }
+
+    private func closeInput() {
+        input?.stop()
+        input = nil
     }
 
     /// Buffers arrive every ~21ms whenever the engine is healthy, so a long gap
@@ -244,6 +334,33 @@ public final class AudioCapture {
         return capturing
     }
 
+    /// A headset switching into call mode posts several of these, and so does
+    /// switching back. Rebuilding on each one tried the headset again before it
+    /// had settled, which failed, which posted another — a loop that ran six
+    /// times in two seconds and left a dictation with no audio at all.
+    func configurationChanged() {
+        // Only meaningful while we hold the microphone. Rebuilding when idle
+        // would open it — exactly what the on-demand policy exists to avoid.
+        // And a headset still switching is expected to make these.
+        guard isWarm, connecting == nil else { return }
+        configChangeGeneration &+= 1
+        let generation = configChangeGeneration
+        // A headset that's started but silent is still settling into call mode,
+        // and each settling step stops the engine. Waiting the usual 0.6s for
+        // more notices only added to the silence; 0.25s still coalesces them.
+        let settle: TimeInterval = awaitingAudioName != nil ? 0.25 : 0.6
+        DispatchQueue.main.asyncAfter(deadline: .now() + settle) { [weak self] in
+            guard let self, generation == self.configChangeGeneration,
+                  self.isWarm, self.connecting == nil, self.wantsMicrophone else { return }
+            // Still hearing? Then the change didn't stop it.
+            if Date().timeIntervalSince(self.lastBuffer) < 0.4 { return }
+            self.restart(reason: "hardware configuration changed")
+        }
+    }
+
+    /// Test entry: what the system's change notice would do.
+    public func simulateConfigurationChange() { configurationChanged() }
+
     private var lastBuffer: Date {
         lock.lock(); defer { lock.unlock() }
         return lastBufferAt
@@ -263,11 +380,14 @@ public final class AudioCapture {
     }
 
     public func shutDown() {
+        connecting = nil
+        lock.lock(); _awaitingAudioName = nil; lock.unlock()
+        connectGeneration &+= 1
+        configChangeGeneration &+= 1
         healthTimer?.invalidate()
         healthTimer = nil
         guard isWarm else { return }
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
+        closeInput()
         isWarm = false
     }
 
@@ -280,17 +400,12 @@ public final class AudioCapture {
     /// can still read true; buffers simply stop arriving, which is
     /// indistinguishable from a broken microphone.
     private func observeInterruptions() {
-        guard configObserver == nil else { return }
+        // Device changes — unplugged, changing rate, a headset settling — are
+        // reported by DeviceInput's own listeners on the device itself.
 
-        configObserver = NotificationCenter.default.addObserver(
-            forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
-        ) { [weak self] _ in
-            // Only meaningful while we hold the microphone. Rebuilding when idle
-            // would open it — exactly what the on-demand policy exists to avoid.
-            guard let self, self.isWarm else { return }
-            self.restart(reason: "hardware configuration changed")
-        }
-
+        // Once per process. Adding it on every start would stack up handlers
+        // and restart once per handler on every wake.
+        guard wakeObserver == nil else { return }
         // Waking doesn't always post a configuration change, and a tap that
         // slept through a suspend can come back mute.
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
@@ -322,8 +437,7 @@ public final class AudioCapture {
         lastBufferAt = Date()
         lock.unlock()
 
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
+        closeInput()
         isWarm = false
 
         do {
@@ -395,6 +509,9 @@ public final class AudioCapture {
 
     private func handle(_ buffer: AVAudioPCMBuffer) {
         noteBuffer()
+        if awaitingAudioName != nil {
+            DispatchQueue.main.async { [weak self] in self?.firstAudioArrived() }
+        }
         if !hasLoggedFirstBuffer {
             hasLoggedFirstBuffer = true
             Log.echo("audio: first buffer · \(Int(buffer.format.sampleRate)) Hz, \(buffer.format.channelCount) ch")
@@ -453,13 +570,19 @@ public final class AudioCapture {
         lock.lock()
         let target = targetFormat
         var conv = converter
-        if target != nil, conv == nil, target != buffer.format {
-            conv = AVAudioConverter(from: buffer.format, to: target!)
+        // Remade whenever the input changes shape — a headset switching into
+        // call mode changes its rate mid-session.
+        if let target, buffer.format != target, conv == nil || conv?.inputFormat != buffer.format {
+            conv = AVAudioConverter(from: buffer.format, to: target)
             converter = conv
         }
         lock.unlock()
 
         guard let target else { return buffer }
+        // Already exactly what the recogniser wants — which is what a Bluetooth
+        // headset in call mode delivers. This case used to fall through to "no
+        // converter" and drop every buffer.
+        if buffer.format == target { return buffer }
         guard let conv else {
             if !hasLoggedConverterFailure {
                 hasLoggedConverterFailure = true

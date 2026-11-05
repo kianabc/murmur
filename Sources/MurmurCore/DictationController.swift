@@ -21,10 +21,12 @@ public enum DictationState: Equatable, Sendable {
 
 /// Produces a transcript from captured audio.
 public protocol DictationEngine: AnyObject {
-    /// Set after a capture that ran for a while and heard nothing at all from a
-    /// microphone other than the built-in one — a dock's empty input jack, say.
-    /// Lets the message name the device instead of telling someone to speak up.
-    var silentDeviceName: String? { get }
+    /// Why a capture produced nothing, when the cause wasn't quiet speech — no
+    /// sound reached Murmur, or a headset was still connecting. Nil means
+    /// "probably too quiet", the only case where that advice is right.
+    var noAudioExplanation: String? { get }
+    /// Connecting, fallen back, or ready.
+    var onMicrophoneStatus: ((MicrophoneStatus) -> Void)? { get set }
     func beginCapture() throws
     func cancelCapture()
     /// Stop capturing and return the raw transcript. Cleanup happens later (M3).
@@ -48,7 +50,8 @@ public enum InsertOutcome: Equatable, Sendable {
 }
 
 public extension DictationEngine {
-    var silentDeviceName: String? { nil }
+    var noAudioExplanation: String? { nil }
+    var onMicrophoneStatus: ((MicrophoneStatus) -> Void)? { get { nil } set {} }
 }
 
 /// Carries a result out of a `Deadline.race` closure.
@@ -96,6 +99,10 @@ public final class DictationController: ObservableObject {
     @Published public private(set) var level: Float = 0
     /// Where the HUD should sit — resolved when a capture starts.
     @Published public private(set) var anchor: CaretLocator.Anchor?
+
+    /// What the microphone is doing, for the popup — above all, a headset still
+    /// connecting, so nobody starts talking before it can hear them.
+    @Published public private(set) var microphoneStatus: MicrophoneStatus = .ready
     /// Last thing we inserted — the raw/cleaned swap in M3 needs this.
     @Published public private(set) var lastTranscript: String = ""
 
@@ -127,6 +134,9 @@ public final class DictationController: ObservableObject {
         self.sink = sink
         self.hotkeys = hotkeys
 
+        self.engine.onMicrophoneStatus = { [weak self] status in
+            MainActor.assumeIsolated { self?.microphoneStatus = status }
+        }
         self.engine.onPartial = { [weak self] text in
             Task { @MainActor in self?.partialText = text }
         }
@@ -236,6 +246,7 @@ public final class DictationController: ObservableObject {
             partialText = ""
             level = 0
             anchor = nil
+            microphoneStatus = .ready
             captureGeneration &+= 1
             try engine.beginCapture()
             state = .recording(latched: false)
@@ -311,13 +322,10 @@ public final class DictationController: ObservableObject {
                     // Silently returning to idle is indistinguishable from a
                     // broken hotkey. Say that nothing was heard.
                     Log.echo("no speech detected — nothing to insert")
-                    if let device = engine.silentDeviceName {
-                        // Not quiet speech: no sound reached Murmur at all, from
-                        // a microphone that isn't the built-in one.
-                        state = .failed("Heard nothing from “\(device)” — choose a microphone in Settings → General")
-                    } else {
-                        state = .failed("Didn't catch that — try speaking a little louder")
-                    }
+                    // "Speak louder" only when sound actually arrived and was
+                    // just quiet. When nothing arrived at all, that advice sends
+                    // someone shouting at a headset that was never listening.
+                    state = .failed(engine.noAudioExplanation ?? "Didn't catch that — try speaking a little louder")
                     partialText = ""
                     resetSoon()
                     return

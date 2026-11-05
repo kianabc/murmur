@@ -16,6 +16,24 @@ All notable changes are recorded here. Versions follow [semantic versioning](htt
   appearing — so it now checks whether it actually did, and builds a new one when
   it didn't.
 
+## Unreleased
+
+### Fixed
+- **Bluetooth headsets now work.** Murmur's audio was timed by your Mac's
+  *output*, so with a headset connected — which is both your output and, while
+  recording, your microphone — recording stuttered or failed outright, whichever
+  microphone you chose. Murmur now records from the microphone directly. On
+  Pixel Buds it's listening in about a tenth of a second.
+- **The built-in microphone works while a headset is connected**, so falling back
+  to it actually helps.
+- While a headset is still connecting, the popup says "Connecting to …" rather
+  than "Listening…", so you don't start talking before it can hear you.
+- **"Speak louder" only when it's true.** If no sound reached Murmur at all, it
+  now says so — or that your headset was still connecting — instead of telling
+  you to speak up.
+- If your chosen microphone doesn't respond and Murmur uses another, the popup
+  says which.
+
 ## [1.13.0] — 2026-10-29
 
 ### Fixed

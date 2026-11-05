@@ -379,6 +379,31 @@ case "render-ui":
     }
     growController.cancelManual()
 
+    final class StatusEngine: DictationEngine {
+        var onPartial: ((String) -> Void)?
+        var onLevel: ((Float) -> Void)?
+        var onMicrophoneStatus: ((MicrophoneStatus) -> Void)?
+        func beginCapture() throws {}
+        func cancelCapture() {}
+        func finishCapture() async throws -> String { "" }
+    }
+    let statusEngine = StatusEngine()
+    let statusController = DictationController(engine: statusEngine, sink: DropSink(), hotkeys: HotkeyMonitor(hotkey: .rightOption))
+    let statusHUD = DictationHUD(controller: statusController)
+    _ = statusHUD
+    let beforeStatus = Set(NSApp.windows.map(\.windowNumber))
+    statusController.startManual()
+    RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+    if let panel = NSApp.windows.first(where: { !beforeStatus.contains($0.windowNumber) && $0.isVisible }) {
+        statusEngine.onMicrophoneStatus?(.connecting("Kian's Pixel Buds Pro"))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        try capture(panel, "hud-connecting.png"); panel.orderFrontRegardless()
+        statusEngine.onMicrophoneStatus?(.fellBack(from: "Kian's Pixel Buds Pro", to: "MacBook Pro Microphone"))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        try capture(panel, "hud-fellback.png"); panel.orderFrontRegardless()
+    }
+    statusController.cancelManual()
+
     let tourWindow = FeatureTour(hotkeyName: { "Right ⌥" }, hasCleanupKey: { false }, onSetUpCleanup: {})
     let beforeTour = Set(NSApp.windows.map(\.windowNumber))
     tourWindow.show()
@@ -633,6 +658,152 @@ case "stuck-selftest":
 
     print(stuckFailures == 0 ? "it cannot get stuck that way" : "\(stuckFailures) stuck cases FAILED")
     if stuckFailures > 0 { exit(1) }
+
+case "headset-live":
+    // Real hardware: open the first connected Bluetooth headset exactly as the
+    // app would, and report whether audio arrives and how long it took.
+    guard let headset = AudioDevices.inputs().first(where: { $0.transport == .bluetooth }) else {
+        print("no Bluetooth headset connected"); break
+    }
+    let cap = AudioCapture()
+    cap.setTargetFormat(AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16000, channels: 1, interleaved: false)!)
+    let laptopMic = AudioDevices.inputs().first { $0.transport == .builtIn }
+    cap.candidateOverride = [headset] + (laptopMic.map { [$0] } ?? [])
+    let heard = BufferCounter()
+    var peak: Float = 0
+    var samples = 0
+    var exactZeros = 0
+    cap.onBuffer = { buf in
+        heard.bump()
+        if let d = buf.floatChannelData?[0] {
+            for i in 0..<Int(buf.frameLength) {
+                peak = max(peak, abs(d[i])); samples += 1
+                if d[i] == 0 { exactZeros += 1 }
+            }
+        }
+    }
+    var statuses: [MicrophoneStatus] = []
+    cap.onMicrophoneStatus = { statuses.append($0) }
+    let t0 = Date()
+    try cap.warmUp()
+    _ = try cap.beginCapture()
+    var firstAudio: Double?
+    var readyAt: Double?
+    while Date().timeIntervalSince(t0) < 8 {
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        if firstAudio == nil, heard.count > 0 { firstAudio = Date().timeIntervalSince(t0) }
+        if readyAt == nil, statuses.last == .ready { readyAt = Date().timeIntervalSince(t0) }
+        if let f = firstAudio, Date().timeIntervalSince(t0) > f + 3 { break }
+    }
+    print("ready shown:  \(readyAt.map { String(format: "%.2fs", $0) } ?? "never")")
+    print("headset:      \(headset.name)")
+    print("used:         \(cap.currentDevice?.name ?? "nothing")")
+    print("statuses:     \(statuses)")
+    print("first audio:  \(firstAudio.map { String(format: "%.2fs", $0) } ?? "never")")
+    let window = firstAudio.map { Date().timeIntervalSince(t0) - $0 } ?? 1
+    print(String(format: "signal:       peak %.6f, %d of %d samples exactly zero (%.0f%%)", peak, exactZeros, samples, samples > 0 ? Double(exactZeros) / Double(samples) * 100 : 0))
+    print("buffers:      \(heard.count) in \(String(format: "%.1f", window))s after first audio (~\(Int(Double(heard.count) / max(window, 0.1)))/s)   peak: \(String(format: "%.3f", peak))")
+    cap.endCapture(); cap.shutDown()
+
+case "bluetooth-selftest":
+    // A Bluetooth headset can't start until macOS has switched it into call
+    // mode — about a second. Simulated here with a device that refuses to start
+    // until a set time has passed, through the real retry and fallback code.
+    var btFails = 0
+    func bt(_ ok: Bool, _ what: String) {
+        if ok { print("  ok  \(what)") } else { btFails += 1; print("FAIL  \(what)") }
+    }
+    func spinB(_ s: Double) { RunLoop.main.run(until: Date().addingTimeInterval(s)) }
+    struct NotYet: Error {}
+    let buds = AudioInputDevice(id: 901, uid: "buds", name: "Kian's Pixel Buds Pro", transport: .bluetooth, inputChannels: 1, sampleRate: 16000)
+    let laptop = AudioInputDevice(id: 902, uid: "laptop", name: "MacBook Pro Microphone", transport: .builtIn, inputChannels: 1, sampleRate: 48000)
+
+    // 1. Ready after ~1s: Murmur waits for it, doesn't fall back, doesn't block.
+    do {
+        let cap = AudioCapture()
+        let readyAt = Date().addingTimeInterval(1.0)
+        var attempts = 0
+        cap.deviceStarter = { d in attempts += 1; if d.uid == "buds" && Date() < readyAt { throw NotYet() } }
+        cap.candidateOverride = [buds, laptop]
+        var statuses: [MicrophoneStatus] = []
+        cap.onMicrophoneStatus = { statuses.append($0) }
+        let t0 = Date()
+        try cap.warmUp()
+        bt(Date().timeIntervalSince(t0) < 0.1, "waiting doesn't freeze the app (warmUp returned at once)")
+        spinB(1.6)
+        bt(cap.currentDevice?.uid == "buds", "the headset is used once it's ready — not the laptop mic")
+        bt(statuses == [.connecting("Kian's Pixel Buds Pro")], "started, but still 'connecting' until sound arrives (got \(statuses))")
+        bt(cap.connectingDeviceName == "Kian's Pixel Buds Pro", "…and a dictation ending now would say it was still connecting")
+        cap.simulateFirstAudio(); spinB(0.1)
+        bt(statuses.last == .ready, "the first sound flips it to ready")
+        bt(cap.connectingDeviceName == nil, "…and it no longer counts as connecting")
+        bt(attempts >= 3, "it kept trying while the headset switched (\(attempts) attempts)")
+        cap.shutDown()
+    }
+
+    // 2. Never ready: after the patience runs out, the laptop mic takes over.
+    do {
+        let cap = AudioCapture()
+        cap.bluetoothPatience = 0.8
+        cap.deviceStarter = { d in if d.uid == "buds" { throw NotYet() } }
+        cap.candidateOverride = [buds, laptop]
+        var statuses: [MicrophoneStatus] = []
+        cap.onMicrophoneStatus = { statuses.append($0) }
+        try cap.warmUp()
+        spinB(1.3)
+        bt(cap.currentDevice?.uid == "laptop", "a headset that never comes up: laptop mic takes over")
+        bt(statuses.last == .fellBack(from: "Kian's Pixel Buds Pro", to: "MacBook Pro Microphone"), "…and the popup says so")
+        bt(cap.failedToConnect == "Kian's Pixel Buds Pro", "…and the headset is remembered as the one that failed")
+        cap.shutDown()
+    }
+
+    // 3. Letting go of the key while it's still connecting stops the retries.
+    do {
+        let cap = AudioCapture()
+        var attempts = 0
+        cap.deviceStarter = { d in attempts += 1; if d.uid == "buds" { throw NotYet() } }
+        cap.candidateOverride = [buds, laptop]
+        try cap.warmUp()
+        spinB(0.6)
+        cap.shutDown()
+        let after = attempts
+        spinB(0.8)
+        bt(attempts == after, "stopping mid-connect stops the retries (no late start)")
+        bt(cap.currentDevice == nil, "…and nothing was opened afterwards")
+    }
+
+    // 4. Change notices: ignored while connecting; a burst afterwards rebuilds once.
+    do {
+        let cap = AudioCapture()
+        let readyAt = Date().addingTimeInterval(0.6)
+        var starts = 0
+        cap.deviceStarter = { d in
+            if d.uid == "buds" && Date() < readyAt { throw NotYet() }
+            starts += 1
+        }
+        cap.candidateOverride = [buds, laptop]
+        try cap.warmUp()
+        _ = try cap.beginCapture()
+        for _ in 0..<4 { cap.simulateConfigurationChange() }   // the headset switching
+        spinB(1.2)
+        bt(starts == 1, "notices while the headset switches don't trigger a rebuild loop (\(starts) start)")
+        for _ in 0..<5 { cap.simulateConfigurationChange() }   // a real change, five notices
+        spinB(1.2)
+        bt(starts == 2, "a burst of five notices rebuilds once, not five times (\(starts) starts)")
+        cap.endCapture(); cap.shutDown()
+    }
+
+    // 5. The message when nothing was transcribed.
+    let ex = SpeechAnalyzerEngine.explainSilence
+    bt(ex(0, 0, "Kian's Pixel Buds Pro", nil, nil)?.contains("still connecting") == true, "no audio while connecting: says wait for Listening")
+    bt(ex(0, 0, nil, "Kian's Pixel Buds Pro", laptop)?.contains("didn't start") == true, "headset failed: names it")
+    bt(ex(0, 0, nil, nil, laptop) == "No sound reached Murmur — try again", "no audio at all: never \"speak louder\"")
+    bt(ex(50, 0, nil, nil, buds)?.contains("Heard nothing from") == true, "silent headset: names it")
+    bt(ex(50, 0.05, nil, nil, buds) == nil, "sound arrived but nothing understood: \"speak louder\" is right")
+    bt(ex(50, 0, nil, nil, laptop) == nil, "silent built-in mic: left to the usual message")
+
+    print(btFails == 0 ? "Bluetooth headsets get time to connect" : "\(btFails) Bluetooth cases FAILED")
+    if btFails > 0 { exit(1) }
 
 case "mic-selftest":
     // Which microphone gets used, across dock arrangements, then the fallback
