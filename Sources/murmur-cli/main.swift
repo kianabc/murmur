@@ -396,7 +396,7 @@ case "render-ui":
     statusController.startManual()
     RunLoop.main.run(until: Date().addingTimeInterval(0.2))
     if let panel = NSApp.windows.first(where: { !beforeStatus.contains($0.windowNumber) && $0.isVisible }) {
-        statusEngine.onMicrophoneStatus?(.connecting("Kian's Pixel Buds Pro"))
+        statusEngine.onMicrophoneStatus?(.connecting("Kian's AirPods Pro"))
         RunLoop.main.run(until: Date().addingTimeInterval(0.3))
         try capture(panel, "hud-connecting.png"); panel.orderFrontRegardless()
         statusEngine.onMicrophoneStatus?(.fellBack(from: "Kian's Pixel Buds Pro", to: "MacBook Pro Microphone"))
@@ -751,18 +751,29 @@ case "headset-live":
     var peak: Float = 0
     var samples = 0
     var exactZeros = 0
+    // Per-100ms timeline from the moment capture opens: is the headset sending
+    // real signal yet, or frames of digital silence while it changes mode?
+    struct Slice { var frames = 0; var zeros = 0; var sumSq: Double = 0; var peak: Float = 0 }
+    var timeline: [Slice] = []
+    var openedAt: Date?
     cap.onBuffer = { buf in
         heard.bump()
         if let d = buf.floatChannelData?[0] {
+            let at = Int(Date().timeIntervalSince(openedAt ?? Date()) * 10)
+            while timeline.count <= at { timeline.append(Slice()) }
             for i in 0..<Int(buf.frameLength) {
                 peak = max(peak, abs(d[i])); samples += 1
-                if d[i] == 0 { exactZeros += 1 }
+                if d[i] == 0 { exactZeros += 1; timeline[at].zeros += 1 }
+                timeline[at].frames += 1
+                timeline[at].sumSq += Double(d[i] * d[i])
+                timeline[at].peak = max(timeline[at].peak, abs(d[i]))
             }
         }
     }
     var statuses: [MicrophoneStatus] = []
     cap.onMicrophoneStatus = { statuses.append($0) }
     let t0 = Date()
+    openedAt = t0
     try cap.warmUp()
     _ = try cap.beginCapture()
     var firstAudio: Double?
@@ -781,6 +792,12 @@ case "headset-live":
     let window = firstAudio.map { Date().timeIntervalSince(t0) - $0 } ?? 1
     print(String(format: "signal:       peak %.6f, %d of %d samples exactly zero (%.0f%%)", peak, exactZeros, samples, samples > 0 ? Double(exactZeros) / Double(samples) * 100 : 0))
     print("buffers:      \(heard.count) in \(String(format: "%.1f", window))s after first audio (~\(Int(Double(heard.count) / max(window, 0.1)))/s)   peak: \(String(format: "%.3f", peak))")
+    print("timeline (from mic open, per 100ms):")
+    for (i, sl) in timeline.enumerated() where i < 40 {
+        let rms = sl.frames > 0 ? (sl.sumSq / Double(sl.frames)).squareRoot() : 0
+        let zeroPct = sl.frames > 0 ? Double(sl.zeros) / Double(sl.frames) * 100 : 0
+        print(String(format: "  %4.1fs  frames %5d  zero %3.0f%%  rms %.6f  peak %.4f", Double(i) / 10, sl.frames, zeroPct, rms, sl.peak))
+    }
     cap.endCapture(); cap.shutDown()
 
 case "bluetooth-selftest":
@@ -816,6 +833,30 @@ case "bluetooth-selftest":
         bt(statuses.last == .ready, "the first sound flips it to ready")
         bt(cap.connectingDeviceName == nil, "…and it no longer counts as connecting")
         bt(attempts >= 3, "it kept trying while the headset switched (\(attempts) attempts)")
+        cap.shutDown()
+    }
+
+    // 1b. AirPods send ~0.65s of exact zeros before the mic is live. Those
+    // frames must not flip it to "Listening", or the user talks into the gap.
+    do {
+        let cap = AudioCapture()
+        cap.deviceStarter = { _ in }
+        cap.candidateOverride = [buds]
+        var statuses: [MicrophoneStatus] = []
+        cap.onMicrophoneStatus = { statuses.append($0) }
+        try cap.warmUp()
+        let fmt = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16000, channels: 1, interleaved: false)!
+        func buffer(_ value: Float) -> AVAudioPCMBuffer {
+            let b = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: 160)!
+            b.frameLength = 160
+            for i in 0..<160 { b.floatChannelData![0][i] = (i == 80 ? value : 0) }
+            return b
+        }
+        for _ in 0..<5 { cap.simulateIncoming(buffer(0)) }
+        spinB(0.1)
+        bt(statuses == [.connecting("Kian's Pixel Buds Pro")], "frames of pure silence don't count as listening (got \(statuses))")
+        cap.simulateIncoming(buffer(0.0004)); spinB(0.1)
+        bt(statuses.last == .ready, "the first real signal, however quiet, flips it to ready")
         cap.shutDown()
     }
 

@@ -3,18 +3,14 @@
 All notable changes are recorded here. Versions follow [semantic versioning](https://semver.org):
 `MAJOR.MINOR.PATCH` — patch for fixes, minor for features, major for breaking changes.
 
-## [1.8.2] — 2026-10-01
+## Unreleased
 
 ### Fixed
-- **Two dictations in a row no longer run together.** Stopping and starting again
-  used to join the sentences with no gap — "back to back.You can see it here."
-  Murmur now adds a space when the cursor is sitting straight after a word, and
-  doesn't when it would be wrong: inside a bracket or quote, mid hyphenated word,
-  or at the start of a line.
-- **The listening popup disappearing for the rest of the session.** It was being
-  placed and asked to come forward every time, correctly, and simply wasn't
-  appearing — so it now checks whether it actually did, and builds a new one when
-  it didn't.
+- **First words lost on AirPods.** When their microphone opens, AirPods send
+  about two-thirds of a second of pure silence while they switch into call
+  mode, and Murmur said "Listening" at the start of it — so the first words
+  went into the gap. It now keeps saying "Connecting to …" until real sound
+  arrives, and "Listening" means it's actually hearing you.
 
 ## [1.13.2] — 2026-11-06
 

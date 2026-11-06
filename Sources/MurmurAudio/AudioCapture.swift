@@ -204,6 +204,22 @@ public final class AudioCapture {
     /// For tests: what the first buffer from the device would do.
     public func simulateFirstAudio() { firstAudioArrived() }
 
+    /// For tests: hands a buffer to the same path the device's buffers take.
+    public func simulateIncoming(_ buffer: AVAudioPCMBuffer) { handle(buffer) }
+
+    /// Whether a buffer holds anything but exact zeros. Only exact zeros count
+    /// as silence: a quiet room still reads around 0.0004, and a live mic never
+    /// produces a run of perfect zeros.
+    static func carriesSignal(_ buffer: AVAudioPCMBuffer) -> Bool {
+        guard let channels = buffer.floatChannelData else { return true }
+        let frames = Int(buffer.frameLength)
+        for c in 0..<Int(buffer.format.channelCount) {
+            let d = channels[c]
+            for i in 0..<frames where d[i] != 0 { return true }
+        }
+        return false
+    }
+
     private func firstAudioArrived() {
         lock.lock()
         let was = _awaitingAudioName
@@ -509,7 +525,14 @@ public final class AudioCapture {
 
     private func handle(_ buffer: AVAudioPCMBuffer) {
         noteBuffer()
-        if awaitingAudioName != nil {
+        // Frames arriving isn't the same as the microphone being live. AirPods
+        // deliver about 0.65s of exact digital zeros after they start, while
+        // they finish switching into call mode — measured three times on real
+        // AirPods Pro, every time. Saying "Listening" at the first frame told
+        // the user to talk into that gap, and their first few words were lost.
+        // Real microphones always carry some noise, so the first nonzero sample
+        // is the moment it's actually listening.
+        if awaitingAudioName != nil, Self.carriesSignal(buffer) {
             DispatchQueue.main.async { [weak self] in self?.firstAudioArrived() }
         }
         if !hasLoggedFirstBuffer {
