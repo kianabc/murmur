@@ -16,7 +16,7 @@ All notable changes are recorded here. Versions follow [semantic versioning](htt
   appearing — so it now checks whether it actually did, and builds a new one when
   it didn't.
 
-## Unreleased
+## [1.13.2] — 2026-11-06
 
 ### Fixed
 - **"Secure field" no longer blocks you in an ordinary field.** Murmur refused
