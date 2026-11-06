@@ -30,10 +30,15 @@ public struct FocusReading: Sendable {
     public let focus: EditableFocus
     /// What the element said about itself, for tuning the lists against reality.
     public let description: String
+    /// The focused element is itself a password field. Asked of the field, not
+    /// of the system: macOS's secure-input switch is on whenever *any* app has
+    /// it on, and apps leave it on by mistake.
+    public let isPasswordField: Bool
 
-    public init(focus: EditableFocus, description: String) {
+    public init(focus: EditableFocus, description: String, isPasswordField: Bool = false) {
         self.focus = focus
         self.description = description
+        self.isPasswordField = isPasswordField
     }
 }
 
@@ -126,8 +131,14 @@ public enum FocusProbe {
 
         return FocusReading(
             focus: classify(role: role, valueSettable: settable),
-            description: described
+            description: described,
+            isPasswordField: isPasswordField(role: role, subrole: subrole)
         )
+    }
+
+    /// Native and web password fields both report this subrole.
+    public static func isPasswordField(role: String, subrole: String) -> Bool {
+        subrole == "AXSecureTextField" || role == "AXSecureTextField"
     }
 
     // MARK: - AX plumbing

@@ -141,13 +141,6 @@ public final class PasteboardSink: TextSink {
 
     @discardableResult
     public func insert(_ text: String) throws -> InsertOutcome {
-        // A password field blocks the paste and the event tap both. The text is
-        // kept in the recent list; nothing goes near the clipboard.
-        if Permissions.isSecureInputActive {
-            Log.echo("insert: not typed — a password field is focused")
-            return copyOnly(text, reason: "a password field is focused")
-        }
-
         // Two reasons to stop at the clipboard: the user asked for that, or we
         // can't type because Accessibility isn't granted. Degrading rather than
         // failing keeps the app usable either way.
@@ -170,6 +163,11 @@ public final class PasteboardSink: TextSink {
         // question, asked of the app before anything is sent, and an explicit
         // non-text role is a real answer rather than an absence of one.
         let focus = probeFocus()
+        // The field, not the system-wide secure-input switch, decides: see
+        // DictationController.begin for why.
+        if focus.isPasswordField {
+            return copyOnly(text, reason: "a password field is focused")
+        }
         if case .notEditable(let role) = focus.focus {
             Log.echo("insert: nowhere to type — \(focus.description)")
             // Nowhere to type is now known reliably, before anything is sent —

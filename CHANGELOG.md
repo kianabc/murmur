@@ -16,6 +16,17 @@ All notable changes are recorded here. Versions follow [semantic versioning](htt
   appearing — so it now checks whether it actually did, and builds a new one when
   it didn't.
 
+## Unreleased
+
+### Fixed
+- **"Secure field" no longer blocks you in an ordinary field.** Murmur refused
+  whenever macOS's secure-input switch was on — but that switch is system-wide.
+  Any app can turn it on (a browser with a password field open somewhere, a
+  password manager, Terminal's Secure Keyboard Entry), and some leave it on by
+  mistake until focus moves through another field. Murmur now checks the field
+  you're actually in, and only refuses in a real password field — saying so
+  plainly: "That's a password field — Murmur won't type into it."
+
 ## [1.13.1] — 2026-11-05
 
 ### Fixed

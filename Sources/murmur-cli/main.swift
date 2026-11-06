@@ -1,4 +1,5 @@
 import AppKit
+import Carbon
 import ApplicationServices
 import Foundation
 import MurmurASR
@@ -403,6 +404,12 @@ case "render-ui":
         try capture(panel, "hud-fellback.png"); panel.orderFrontRegardless()
     }
     statusController.cancelManual()
+    RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+    statusController.reportProblem("That's a password field — Murmur won't type into it")
+    RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+    if let panel = NSApp.windows.first(where: { !beforeStatus.contains($0.windowNumber) && $0.isVisible }) {
+        try capture(panel, "hud-password.png")
+    }
 
     let tourWindow = FeatureTour(hotkeyName: { "Right ⌥" }, hasCleanupKey: { false }, onSetUpCleanup: {})
     let beforeTour = Set(NSApp.windows.map(\.windowNumber))
@@ -658,6 +665,77 @@ case "stuck-selftest":
 
     print(stuckFailures == 0 ? "it cannot get stuck that way" : "\(stuckFailures) stuck cases FAILED")
     if stuckFailures > 0 { exit(1) }
+
+case "secure-selftest":
+    // Secure input switched on for real, for a few seconds, and the real
+    // controller and paste path run through it. Murmur used to refuse whenever
+    // the system-wide switch was on; it should refuse only in a password field.
+    var secFails = 0
+    func sc(_ ok: Bool, _ what: String) {
+        if ok { print("  ok  \(what)") } else { secFails += 1; print("FAIL  \(what)") }
+    }
+    func spinS2(_ s: Double) { RunLoop.main.run(until: Date().addingTimeInterval(s)) }
+    final class QuietEngine2: DictationEngine {
+        var onPartial: ((String) -> Void)?
+        var onLevel: ((Float) -> Void)?
+        func beginCapture() throws {}
+        func cancelCapture() {}
+        func finishCapture() async throws -> String { "meet at three" }
+    }
+    final class CountSink: TextSink {
+        var got: [String] = []
+        func insert(_ text: String) throws -> InsertOutcome { got.append(text); return .typed }
+    }
+    let ordinaryField = FocusReading(focus: .editable, description: "test text field", isPasswordField: false)
+    let passwordField = FocusReading(focus: .editable, description: "test password field", isPasswordField: true)
+
+    sc(FocusProbe.isPasswordField(role: "AXTextField", subrole: "AXSecureTextField"), "a secure text field is recognised as a password field")
+    sc(!FocusProbe.isPasswordField(role: "AXTextField", subrole: "-"), "an ordinary text field is not")
+    sc(!FocusProbe.isPasswordField(role: "AXTextArea", subrole: "-"), "a text area is not")
+
+    EnableSecureEventInput()
+    defer { DisableSecureEventInput() }
+    sc(Permissions.isSecureInputActive, "secure input is on (switched on by this test)")
+    sc(Permissions.secureInputHolder != nil, "…and macOS names a holder for the log: \(Permissions.secureInputHolder ?? "nil")")
+
+    // The bug: an ordinary field, with someone else's secure input left on.
+    let sink1 = CountSink()
+    let c1 = DictationController(engine: QuietEngine2(), sink: sink1, hotkeys: HotkeyMonitor(hotkey: .rightOption))
+    c1.probeFocus = { ordinaryField }
+    c1.startManual(); spinS2(0.2)
+    var c1Recording = false
+    if case .recording = c1.state { c1Recording = true }
+    sc(c1Recording, "secure input on, ordinary field: dictation starts (used to be refused)")
+    c1.stopManual(); spinS2(0.5)
+    sc(sink1.got == ["meet at three"], "…and the text is typed")
+
+    // A real password field: refused, and said plainly.
+    let c2 = DictationController(engine: QuietEngine2(), sink: CountSink(), hotkeys: HotkeyMonitor(hotkey: .rightOption))
+    c2.probeFocus = { passwordField }
+    c2.startManual(); spinS2(0.2)
+    var c2Message = ""
+    if case .failed(let m) = c2.state { c2Message = m }
+    sc(c2Message.contains("password field"), "a password field is refused: “\(c2Message)”")
+
+    // The paste path, on a private clipboard.
+    let modeKeep = InsertionPreference.current
+    InsertionPreference.current = .typeIntoApp
+    let secBoard = NSPasteboard(name: NSPasteboard.Name("murmur.secure.\(UUID().uuidString)"))
+    let pasteSink = PasteboardSink(pasteboard: secBoard)
+    var pasted = 0
+    pasteSink.performPaste = { pasted += 1 }
+    pasteSink.probeFocus = { ordinaryField }
+    let firstOutcome = try? pasteSink.insert("hello")
+    sc(firstOutcome == .typed && pasted == 1, "secure input on, ordinary field: pasted")
+    pasteSink.probeFocus = { passwordField }
+    if case .copied = (try? pasteSink.insert("hello")) ?? .typed { sc(pasted == 1, "password field: not pasted into") } else { sc(false, "password field: not pasted into") }
+    InsertionPreference.current = modeKeep
+
+    DisableSecureEventInput()
+    sc(!Permissions.isSecureInputActive && Permissions.secureInputHolder == nil, "switched off again, nothing left holding it")
+
+    print(secFails == 0 ? "only password fields are refused" : "\(secFails) secure input cases FAILED")
+    if secFails > 0 { exit(1) }
 
 case "headset-live":
     // Real hardware: open the first connected Bluetooth headset exactly as the

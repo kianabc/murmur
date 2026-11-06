@@ -112,6 +112,9 @@ public final class DictationController: ObservableObject {
     @Published public private(set) var recent: [Transcript] = []
     public static let recentLimit = 10
 
+    /// What has focus. Replaceable so the decisions made on it can be tested.
+    public var probeFocus: () -> FocusReading = { FocusProbe.probe() }
+
     /// How long transcription may take before it is abandoned. Settable so the
     /// test can prove the bound without waiting eight seconds.
     public var engineDeadline: Double = 8
@@ -217,19 +220,28 @@ public final class DictationController: ObservableObject {
             return
         }
 
-        // A focused password field kills our event tap and would make us look
-        // broken. Say so instead.
-        guard !Permissions.isSecureInputActive else {
-            state = .failed("Disabled — a secure input field is focused")
-            resetSoon()
-            return
+        // Refuse only when the field itself is a password field. This used to
+        // refuse whenever macOS's secure-input switch was on — but that switch is
+        // system-wide, apps leave it on by mistake, and the user was blocked in a
+        // perfectly ordinary field until they clicked through another one.
+        if Permissions.isSecureInputActive {
+            let reading = probeFocus()
+            if reading.isPasswordField {
+                Log.echo("declined — a password field is focused (\(reading.description))")
+                state = .failed("That's a password field — Murmur won't type into it")
+                resetSoon()
+                return
+            }
+            // The name is what macOS reports, which tends to be whatever is in
+            // front rather than whoever switched it on — a lead, not a verdict.
+            Log.echo("secure input is on (macOS names \(Permissions.secureInputHolder ?? "no one")), but this isn't a password field — going ahead (\(reading.description))")
         }
 
         // Nothing to paste into means the whole dictation ends in nothing, so
         // don't start one. Only checked when we'd be typing into the app — in
         // clipboard mode there is always somewhere for the text to go.
         if FocusGatePreference.isEnabled, InsertionPreference.current == .typeIntoApp {
-            let reading = FocusProbe.probe()
+            let reading = probeFocus()
             // The lists can only be tuned against what real apps actually
             // report, and they disagree wildly. Recorded on anything other than
             // a plain text field so there's evidence to tune from.

@@ -1,6 +1,7 @@
 import AVFoundation
 import AppKit
 import Carbon.HIToolbox
+import CoreGraphics
 import IOKit.hid
 
 /// The three permissions Murmur needs, each behind a different macOS gate.
@@ -109,5 +110,19 @@ public struct Permissions {
     /// than appearing broken. See SPEC.md §3.5.
     public static var isSecureInputActive: Bool {
         IsSecureEventInputEnabled()
+    }
+
+    /// The app macOS reports as holding secure input. In testing it named the
+    /// frontmost app rather than the process that switched it on, so this is for
+    /// the log, never for a message stated as fact. It's a system-wide switch —
+    /// a browser with a password field somewhere, a password manager, Terminal's
+    /// Secure Keyboard Entry — and apps sometimes leave it on by mistake, so
+    /// naming it is what makes "why won't it work" answerable.
+    public static var secureInputHolder: String? {
+        guard IsSecureEventInputEnabled(),
+              let session = CGSessionCopyCurrentDictionary() as? [String: Any],
+              let pid = (session["kCGSSessionSecureInputPID"] as? NSNumber)?.int32Value
+        else { return nil }
+        return NSRunningApplication(processIdentifier: pid)?.localizedName ?? "process \(pid)"
     }
 }
