@@ -3,7 +3,13 @@
 All notable changes are recorded here. Versions follow [semantic versioning](https://semver.org):
 `MAJOR.MINOR.PATCH` — patch for fixes, minor for features, major for breaking changes.
 
-## Unreleased
+## [1.13.3] — 2026-11-06
+
+### Added
+- **A soft tick when Murmur starts listening.** It comes the moment the
+  microphone can actually hear you — at once on a built-in mic, after the
+  switch-over on AirPods — so you know when to talk without watching the popup.
+  Settings → General → Microphone → "Tick when it starts listening".
 
 ### Fixed
 - **First words lost on AirPods.** When their microphone opens, AirPods send

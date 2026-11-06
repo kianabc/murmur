@@ -28,6 +28,7 @@ public final class SettingsModel: ObservableObject {
         }
     }
     @Published var requireTextField: Bool { didSet { FocusGatePreference.isEnabled = requireTextField } }
+    @Published var listeningTick: Bool { didSet { ListeningCue.isEnabled = listeningTick } }
 
     /// "" is Automatic.
     @Published var microphoneUID: String = MicrophoneChoice.selectedUID ?? "" {
@@ -170,6 +171,7 @@ public final class SettingsModel: ObservableObject {
         self.insertion = InsertionPreference.current
         self.micPolicy = MicrophonePreference.current
         self.requireTextField = FocusGatePreference.isEnabled
+        self.listeningTick = ListeningCue.isEnabled
         self.holdDelay = HoldDelayPreference.stored
         self.cleanupEnabled = CleanupPreference.isEnabled
         self.skipShortPhrases = ShortPhrasePreference.isEnabled
@@ -442,6 +444,8 @@ private struct GeneralTab: View {
                     ForEach(MicrophonePolicy.allCases, id: \.self) { Text($0.displayName).tag($0) }
                 }
                 .pickerStyle(.radioGroup)
+
+                Toggle("Tick when it starts listening", isOn: $model.listeningTick)
             } header: {
                 Text("Microphone")
             } footer: {
@@ -450,6 +454,7 @@ private struct GeneralTab: View {
                          ? "The microphone you picked isn't connected, so Murmur is using the automatic choice until it's back."
                          : "Automatic uses your Mac's sound input, and falls back to the built-in microphone if that one won't work — a dock's empty audio jack, say.")
                     Text(model.micPolicy.detail)
+                    Text("The tick comes the moment Murmur can hear you. AirPods and other Bluetooth headsets take about a second to switch on their microphone, and anything said before the tick isn't recorded.")
                 }
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

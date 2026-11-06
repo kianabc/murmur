@@ -114,6 +114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         speechEngine = engine
         let sink = PasteboardSink()
         controller = DictationController(engine: engine, sink: sink)
+        controller.onListening = { ListeningCue.play() }
         // A paste that goes nowhere used to lose the dictation outright: the
         // clipboard was restored 150ms later, taking the transcript with it.
         sink.onPasteFallback = { [weak self] text in

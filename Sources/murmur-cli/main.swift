@@ -924,6 +924,59 @@ case "bluetooth-selftest":
     print(btFails == 0 ? "Bluetooth headsets get time to connect" : "\(btFails) Bluetooth cases FAILED")
     if btFails > 0 { exit(1) }
 
+case "tick-selftest":
+    // The listening tick: once per dictation, and on a headset only once it
+    // can actually hear — not at the press, when AirPods are still silent.
+    var tkFails = 0
+    func tk(_ ok: Bool, _ what: String) {
+        if ok { print("  ok  \(what)") } else { tkFails += 1; print("FAIL  \(what)") }
+    }
+    func spinT(_ s: Double) { RunLoop.main.run(until: Date().addingTimeInterval(s)) }
+    final class HeadsetEngine: DictationEngine {
+        var onPartial: ((String) -> Void)?
+        var onLevel: ((Float) -> Void)?
+        var onMicrophoneStatus: ((MicrophoneStatus) -> Void)?
+        var startsConnecting = false
+        func beginCapture() throws {
+            onMicrophoneStatus?(startsConnecting ? .connecting("Kian's AirPods Pro") : .ready)
+        }
+        func cancelCapture() {}
+        func finishCapture() async throws -> String { "" }
+    }
+    final class NoSink: TextSink { func insert(_ text: String) throws -> InsertOutcome { .typed } }
+    do {
+        let eng = HeadsetEngine()
+        let c = DictationController(engine: eng, sink: NoSink(), hotkeys: HotkeyMonitor(hotkey: .rightOption))
+        var ticks = 0
+        c.onListening = { ticks += 1 }
+
+        c.startManual(); spinT(0.05)
+        tk(ticks == 1, "built-in mic: ticks at once (\(ticks))")
+        eng.onMicrophoneStatus?(.ready); spinT(0.05)
+        tk(ticks == 1, "…and only once, however often it says ready (\(ticks))")
+        c.cancelManual(); spinT(0.6)
+
+        eng.startsConnecting = true
+        c.startManual(); spinT(0.05)
+        tk(ticks == 1, "AirPods: no tick while connecting (\(ticks))")
+        eng.onMicrophoneStatus?(.ready); spinT(0.05)
+        tk(ticks == 2, "…ticks when real sound arrives (\(ticks))")
+        c.cancelManual(); spinT(0.6)
+
+        c.startManual(); spinT(0.05)
+        eng.onMicrophoneStatus?(.fellBack(from: "Kian's AirPods Pro", to: "MacBook Pro Microphone")); spinT(0.05)
+        tk(ticks == 3, "a fallback mic is listening too, so it ticks (\(ticks))")
+        c.cancelManual(); spinT(0.6)
+
+        c.startManual(); spinT(0.05)
+        c.cancelManual(); spinT(0.05)
+        eng.onMicrophoneStatus?(.ready); spinT(0.05)
+        tk(ticks == 3, "a headset that connects after you let go doesn't tick (\(ticks))")
+    }
+    tk(ListeningCue.isEnabled, "on by default")
+    print(tkFails == 0 ? "tick: all pass" : "tick: \(tkFails) failed")
+    if tkFails > 0 { exit(1) }
+
 case "mic-selftest":
     // Which microphone gets used, across dock arrangements, then the fallback
     // run for real: a device that can't record is tried first and the built-in

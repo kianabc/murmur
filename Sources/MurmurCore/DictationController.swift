@@ -103,6 +103,13 @@ public final class DictationController: ObservableObject {
     /// What the microphone is doing, for the popup — above all, a headset still
     /// connecting, so nobody starts talking before it can hear them.
     @Published public private(set) var microphoneStatus: MicrophoneStatus = .ready
+
+    /// Called once per dictation, at the moment the microphone can actually
+    /// hear — at once on a built-in mic, but only after a Bluetooth headset has
+    /// finished switching modes. The app plays a tick from it, so nobody has to
+    /// watch the popup to know when to start talking.
+    public var onListening: (() -> Void)?
+    private var cuedGeneration: UInt64 = 0
     /// Last thing we inserted — the raw/cleaned swap in M3 needs this.
     @Published public private(set) var lastTranscript: String = ""
 
@@ -138,7 +145,11 @@ public final class DictationController: ObservableObject {
         self.hotkeys = hotkeys
 
         self.engine.onMicrophoneStatus = { [weak self] status in
-            MainActor.assumeIsolated { self?.microphoneStatus = status }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.microphoneStatus = status
+                if case .recording = self.state { self.cueIfListening() }
+            }
         }
         self.engine.onPartial = { [weak self] text in
             Task { @MainActor in self?.partialText = text }
@@ -262,6 +273,7 @@ public final class DictationController: ObservableObject {
             captureGeneration &+= 1
             try engine.beginCapture()
             state = .recording(latched: false)
+            cueIfListening()
         } catch {
             state = .failed(error.localizedDescription)
             resetSoon()
@@ -283,6 +295,19 @@ public final class DictationController: ObservableObject {
             // otherwise unanswerable.
             Log.echo("anchor: \(located.precision.rawValue)")
             self.anchor = located
+        }
+    }
+
+    /// Fires `onListening` the first time this capture can hear — a fallback
+    /// microphone counts, since it's listening too.
+    private func cueIfListening() {
+        guard cuedGeneration != captureGeneration else { return }
+        switch microphoneStatus {
+        case .ready, .fellBack:
+            cuedGeneration = captureGeneration
+            onListening?()
+        case .connecting:
+            break
         }
     }
 
